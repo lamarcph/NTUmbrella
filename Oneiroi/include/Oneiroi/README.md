@@ -1,3 +1,10 @@
+#NT Oneiroi
+This is a port of Oneiroi for the Disting NT. 
+
+Code from Oneiroi and Rebel Technology OLW plaftform has been copy pasted and slighly modified
+
+Here is the original Oneiroi README... 
+
 # Oneiroi
 
 Oneiroi is a multi-functional, self-contained experimental digital synth focused on ambient pads and drone-like landscapes.
