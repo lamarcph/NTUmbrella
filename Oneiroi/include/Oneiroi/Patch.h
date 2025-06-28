@@ -16,26 +16,9 @@ enum PatchChannelId {
 
 #include <cstddef>
 #include <stdint.h>
-/*
-namespace
-{
-  constexpr std::size_t kHeapSize = 8 * 1024; // 8 KiB
-  alignas(8) static uint8_t g_heap[kHeapSize];
-  static std::size_t g_offset = 0;
-}
+static constexpr size_t _allocatableDTCMemorySize = 10000;
+static constexpr uint32_t _allocatableMemorySize = 8000000; 
 
-void *operator new(std::size_t size) noexcept
-{
-  size = (size + 7) & ~static_cast<std::size_t>(7); // align 8
-  if (g_offset + size > kHeapSize)
-    return nullptr; // out of arena
-  void *ptr = &g_heap[g_offset];
-  g_offset += size;
-  return ptr;
-}
-
-void operator delete(void * ) noexcept {}
-void operator delete(void * , std::size_t) noexcept {}*/
 
 static uint8_t* _allocatableMemory;
 static uint32_t _allocatedMemory;
@@ -60,7 +43,7 @@ void* operator new[] (std::size_t sz)
 void* _new(std::size_t sz)
 {
     void *ret = nullptr;
-    if (sz < 1200 &&  (_allocatedDTCMemory + sz) < 30000 ){
+    if (sz < 1200 &&  (_allocatedDTCMemory + sz) <  _allocatableDTCMemorySize ){
       ret = _allocatableDTCMemory;
       _allocatableDTCMemory += sz;
       _allocatedDTCMemory += sz;

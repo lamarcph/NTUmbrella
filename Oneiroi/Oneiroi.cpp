@@ -12,7 +12,7 @@ struct _OneiroiAlgorithm_DTC
 	Oneiroi* Oneiroi_;
 	AudioBuffer* buffer;
 	float semi= 0.f, fine=0.f, v8c = 0.f;
-	uint8_t dtcMemory[30000];
+	uint8_t dtcMemory[_allocatableDTCMemorySize];
 };
 
 struct _OneiroiAlgorithm : public _NT_algorithm
@@ -25,20 +25,27 @@ struct _OneiroiAlgorithm : public _NT_algorithm
 
 enum
 {
-	kParamLeftOutput,
-	kParamLeftOutputMode,
-	kParamRightOutput,
-	kParamRightOutputMode,
-	kParamOscSemi,
-	kParamOscFine,
-	kParamOscV8c,
-	kParamOscDetune,
-	kParamOscPitchModAmount, 
-	kParamOscUnison,
-	kParamOscDetuneModAmount,
-	kParamSinOscVol,
-	kParamSSOscVol,
-	kParamSSWT,
+    kParamLeftOutput,
+    kParamLeftOutputMode,
+    kParamRightOutput,
+    kParamRightOutputMode,
+    kParamLeftInput,
+    kParamRightInput,
+
+    
+    kParamInputLevel, 
+    kParamOutputLevel,
+
+    kParamOscSemi,
+    kParamOscFine,
+    kParamOscV8c,
+    kParamOscDetune,
+    kParamOscPitchModAmount, 
+    kParamOscUnison,
+    kParamOscDetuneModAmount,
+    kParamSinOscVol,
+    kParamSSOscVol,
+    kParamSSWT,
     
 	kParamfilterVol,
     kParamfilterMode,
@@ -98,9 +105,16 @@ static char const * const enumStringsSSWT[] = {
 };
 
 static const _NT_parameter	parameters[] = {
-	NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Left Output", 1, 13 )
-	NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Right Output", 1, 14 )
-	{ .name = "Semi", .min = -48, .max = 48, .def = 0, .unit = kNT_unitSemitones, .scaling = 0, .enumStrings = NULL },
+    NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Left Output", 1, 13 )
+    NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Right Output", 1, 14 )
+    NT_PARAMETER_AUDIO_INPUT("Left Input", 1, 1)
+    NT_PARAMETER_AUDIO_INPUT("Right Input", 1, 2)
+
+    // --- Add new parameters here ---
+    { .name = "Input Level", .min = 0, .max = 1000, .def = 700, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Output Level", .min = 0, .max = 1000, .def = 700, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
+
+    { .name = "Semi", .min = -48, .max = 48, .def = 0, .unit = kNT_unitSemitones, .scaling = 0, .enumStrings = NULL },
 	{ .name = "Fine", .min =-50 , .max = 50, .def = 0, .unit = kNT_unitCents, .scaling = 0, .enumStrings = NULL },
 	{ .name = "Volt/Octave", .min = -5000, .max = 5000, .def = 0, .unit = kNT_unitVolts, .scaling = kNT_scaling1000, .enumStrings = NULL },
 	{ .name = "Detune", .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
@@ -161,7 +175,7 @@ static const uint8_t page4[] = { kParamresonatorVol, kParamresonatorTune, kParam
 static const uint8_t page5[] = { kParamechoVol, kParamechoDensity, kParamechoRepeats, kParamechoFilter };
 static const uint8_t page6[] = { kParamambienceVol, kParamambienceDecay, kParamambienceSpacetime, kParamambienceAutoPan };
 static const uint8_t page7[] = { kParammodType, kParammodSpeed, kParammodLevel};
-static const uint8_t page8[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput , kParamRightOutputMode};
+static const uint8_t page8[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamInputLevel, kParamOutputLevel };
 
 
 
@@ -185,7 +199,7 @@ void	calculateRequirements( _NT_algorithmRequirements& req, const int32_t* speci
 {
 	req.numParameters = ARRAY_SIZE(parameters);
 	req.sram = sizeof(_OneiroiAlgorithm);
-	req.dram = 12000000;
+	req.dram = _allocatableMemorySize;
 	req.dtc = sizeof(_OneiroiAlgorithm_DTC);
 	req.itc = 0;
 }
@@ -293,13 +307,23 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
 	bool replaceL = pThis->v[kParamRightOutputMode];
 	bool replaceR = pThis->v[kParamLeftOutputMode];
 	
+	float* inL = busFrames + ( pThis->v[kParamLeftInput] - 1 ) * numFrames;
+	float* inR = busFrames + ( pThis->v[kParamRightInput] - 1 ) * numFrames;
+	
+	
+
 	NTSampleBuffer* myBuffer = static_cast<NTSampleBuffer*>(dtc->buffer); 
 	myBuffer->setSize(numFrames);
-	
-	myBuffer->clear();
-    dtc->Oneiroi_->Process(*myBuffer);
+    myBuffer->clear();
 	FloatArray chLArray = myBuffer->getSamples(LEFT_CHANNEL); 
 	FloatArray chRArray = myBuffer->getSamples(RIGHT_CHANNEL); 
+	
+	for ( int i=0; i<numFrames; ++i ){
+	  chRArray[i] = inR[i];
+	  chLArray[i] = inL[i];
+	}
+		
+    dtc->Oneiroi_->Process(*myBuffer);
 	    if ( !replaceR )
 		{ // are these loops really faster than putting the if inside?
 			for ( int i=0; i<numFrames; ++i ){
@@ -336,6 +360,13 @@ void parameterChanged( _NT_algorithm* self, int p )
 	
 	switch (p)
 	{
+        // --- Handle new parameters ---
+        case kParamInputLevel:
+            patchCtrls.inputVol = pThis->v[p] / 1000.f;
+            break;
+        case kParamOutputLevel:
+            patchState.outLevel = pThis->v[p] / 1000.f;
+            break;
     case kParamOscSemi :
 		pThis->dtc->semi = pThis->v[p];
 		break;
@@ -529,11 +560,11 @@ bool	draw( _NT_algorithm* self )
     NT_floatToString(debugc, pThis->dtc->patchState.debugvalue4);	
 	NT_drawText( 180, 50, debugc );
 
-	NT_floatToString(debugc, ((float)_allocatedMemory/12000000.f));	
+	NT_floatToString(debugc, ((float)_allocatedMemory/_allocatableMemorySize));	
 	NT_drawText( 10, 35, "DRAM:" );
 	NT_drawText( 60, 35, debugc );
 
-	NT_floatToString(debugc, ((float)_allocatedDTCMemory/30000.f));	
+	NT_floatToString(debugc, ((float)_allocatedDTCMemory/_allocatableDTCMemorySize));	
 	NT_drawText( 100, 35, "DTC:" );
 	NT_drawText( 140, 35, debugc );
 		

@@ -125,8 +125,8 @@ public:
 
     inline void Process(AudioBuffer &buffer)
     {
-        FloatArray left = buffer.getSamples(LEFT_CHANNEL);
-        FloatArray right = buffer.getSamples(RIGHT_CHANNEL);
+        //FloatArray left = buffer.getSamples(LEFT_CHANNEL);
+        //FloatArray right = buffer.getSamples(RIGHT_CHANNEL);
 
         inputDcFilter_->process(buffer, buffer);
 
@@ -147,7 +147,7 @@ public:
             patchState_->inputLevel[i] = l;
         }*/
 
-        modulation_->Process();
+        if (patchCtrls_->modLevel > 0.f) modulation_->Process();
         clock_->Process();
 
         input_->copyFrom(buffer);
@@ -155,20 +155,24 @@ public:
 
         if (patchCtrls_->looperResampling)
         {
-            looper_->Process(*resample_, buffer);
+            if (patchCtrls_->looperVol > 0.f) looper_->Process(*resample_, buffer);
         }
         else
         {
-            looper_->Process(buffer, buffer);
+            if (patchCtrls_->looperVol > 0.f) looper_->Process(buffer, buffer);
         }
         buffer.add(*input_);
 
-        sine_->Process(*osc1Out_);
-        buffer.add(*osc1Out_);
+        if (patchCtrls_->osc1Vol > 0.f){
+            sine_->Process(*osc1Out_);
+            buffer.add(*osc1Out_);
+        }
+
         osc2Out_->clear();
-        patchCtrls_->oscUseWavetable > 0.5f ? wt_->Process(*osc2Out_) : saw_->Process(*osc2Out_);
-                
-        buffer.add(*osc2Out_);
+        if (patchCtrls_->osc2Vol > 0.f){
+            patchCtrls_->oscUseWavetable > 0.5f ? wt_->Process(*osc2Out_) : saw_->Process(*osc2Out_);
+            buffer.add(*osc2Out_);
+        }
 
         buffer.multiply(kSourcesMakeupGain);
 
@@ -199,24 +203,25 @@ public:
             patchState_->filterPositionFlag = false;
         }
 
+        
         if (FilterPosition::POSITION_1 == filterPosition_)
         {
-            filter_->process(buffer, buffer);
+            if (patchCtrls_->filterVol > 0.f) filter_->process(buffer, buffer);
         }
-        resonator_->process(buffer, buffer);
+        if (patchCtrls_->resonatorVol > 0.f) resonator_->process(buffer, buffer);
         if (FilterPosition::POSITION_2 == filterPosition_)
         {
-            filter_->process(buffer, buffer);
+            if (patchCtrls_->filterVol > 0.f) filter_->process(buffer, buffer);
         }
-        echo_->process(buffer, buffer);
+        if (patchCtrls_->echoVol > 0.f) echo_->process(buffer, buffer);
         if (FilterPosition::POSITION_3 == filterPosition_)
         {
-            filter_->process(buffer, buffer);
+          if (patchCtrls_->filterVol > 0.f)  filter_->process(buffer, buffer);
         }
-        ambience_->process(buffer, buffer);
+        if (patchCtrls_->ambienceVol > 0.f) ambience_->process(buffer, buffer);
         if (FilterPosition::POSITION_4 == filterPosition_)
         {
-            filter_->process(buffer, buffer);
+         if (patchCtrls_->filterVol > 0.f) filter_->process(buffer, buffer);
         }
 
         outputDcFilter_->process(buffer, buffer);
