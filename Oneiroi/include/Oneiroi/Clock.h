@@ -45,6 +45,12 @@ public:
         patchState_->tempo->clock(1);
 
         patchState_->clockReset = false;
+        
+        if (patchState_->clockSource == ClockSource::CLOCK_SOURCE_EXTERNAL)
+                patchState_->debugvalue2 = 1.f;
+        else if (patchState_->clockSource == ClockSource::CLOCK_SOURCE_INTERNAL)
+                patchState_->debugvalue2 = 0.f;
+        else patchState_->debugvalue2 = 2.f;
 
         // Listen to sync in.
         if (patchState_->syncIn)
@@ -58,11 +64,13 @@ public:
         {
             // We received a sync, keep listening.
             samplesSinceSyncIn_++;
+            //patchState_->debugvalue2 = 1.0f;
         }
         else
         {
             // We didn't receive a sync, or too much time has passed.
             firstSyncIn_ = false;
+            //patchState_->debugvalue2 = 2.0f;
         }
 
         if (ClockSource::CLOCK_SOURCE_EXTERNAL == patchState_->clockSource && !externalClock)
@@ -72,20 +80,24 @@ public:
             patchState_->clockSource = ClockSource::CLOCK_SOURCE_INTERNAL;
             patchState_->tempo->setFrequency(kInternalClockFreq);
             patchState_->clockReset = true;
+            patchState_->debugvalue3 = 3.0f;
         }
         else if (ClockSource::CLOCK_SOURCE_INTERNAL == patchState_->clockSource && externalClock)
         {
             // Switch to the external clock.
             patchState_->clockSource = ClockSource::CLOCK_SOURCE_EXTERNAL;
             patchState_->clockReset = true;
+            patchState_->debugvalue3 = 4.0f;
         }
 
         size_t s = patchState_->tempo->getPeriodInSamples();
         if (fabs(patchState_->clockSamples - s) > kClockTempoSamplesMin)
         {
             patchState_->clockSamples = s;
+            patchState_->debugvalue4 = s*1.0f;
         }
 
         patchState_->clockTick = trigger_.Process(patchState_->tempo->isOn());
+        patchState_->debugvalue = patchState_->tempo->getBeatsPerMinute();
     }
 };

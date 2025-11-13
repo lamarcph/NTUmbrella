@@ -11,7 +11,7 @@ struct _OneiroiAlgorithm_DTC
     PatchState patchState;
 	Oneiroi* Oneiroi_;
 	AudioBuffer* buffer;
-	float semi= 0.f, fine=0.f, v8c = 0.f;
+	float semi= 0.f, fine=0.f, v8c = 0.f, prevClockValue = 0.f;
 	uint8_t dtcMemory[_allocatableDTCMemorySize];
 };
 
@@ -31,6 +31,7 @@ enum
     kParamRightOutputMode,
     kParamLeftInput,
     kParamRightInput,
+	kParamClockInput,
 
     
     kParamInputLevel, 
@@ -107,8 +108,9 @@ static char const * const enumStringsSSWT[] = {
 static const _NT_parameter	parameters[] = {
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Left Output", 1, 13 )
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Right Output", 1, 14 )
-    NT_PARAMETER_AUDIO_INPUT("Left Input", 1, 1)
-    NT_PARAMETER_AUDIO_INPUT("Right Input", 1, 2)
+    NT_PARAMETER_AUDIO_INPUT("Left Input", 0, 1)
+    NT_PARAMETER_AUDIO_INPUT("Right Input", 0, 2)
+	NT_PARAMETER_AUDIO_INPUT("Clock Input", 0, 0)
 
     // --- Add new parameters here ---
     { .name = "Input Level", .min = 0, .max = 1000, .def = 700, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
@@ -175,7 +177,7 @@ static const uint8_t page4[] = { kParamresonatorVol, kParamresonatorTune, kParam
 static const uint8_t page5[] = { kParamechoVol, kParamechoDensity, kParamechoRepeats, kParamechoFilter };
 static const uint8_t page6[] = { kParamambienceVol, kParamambienceDecay, kParamambienceSpacetime, kParamambienceAutoPan };
 static const uint8_t page7[] = { kParammodType, kParammodSpeed, kParammodLevel};
-static const uint8_t page8[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamInputLevel, kParamOutputLevel };
+static const uint8_t page8[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamClockInput,  kParamInputLevel, kParamOutputLevel };
 
 
 
@@ -306,11 +308,6 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
 	float* outR = busFrames + ( pThis->v[kParamRightOutput] - 1 ) * numFrames;
 	bool replaceL = pThis->v[kParamRightOutputMode];
 	bool replaceR = pThis->v[kParamLeftOutputMode];
-	
-	float* inL = busFrames + ( pThis->v[kParamLeftInput] - 1 ) * numFrames;
-	float* inR = busFrames + ( pThis->v[kParamRightInput] - 1 ) * numFrames;
-	
-	
 
 	NTSampleBuffer* myBuffer = static_cast<NTSampleBuffer*>(dtc->buffer); 
 	myBuffer->setSize(numFrames);
@@ -318,11 +315,23 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
 	FloatArray chLArray = myBuffer->getSamples(LEFT_CHANNEL); 
 	FloatArray chRArray = myBuffer->getSamples(RIGHT_CHANNEL); 
 	
-	for ( int i=0; i<numFrames; ++i ){
-	  chRArray[i] = inR[i];
-	  chLArray[i] = inL[i];
+	if (pThis->v[kParamLeftInput] > 0 && pThis->v[kParamRightInput] > 0){
+		float* inL = busFrames + ( pThis->v[kParamLeftInput] - 1 ) * numFrames;
+	    float* inR = busFrames + ( pThis->v[kParamRightInput] - 1 ) * numFrames;
+		for ( int i=0; i<numFrames; ++i ){
+		chRArray[i] = inR[i];
+		chLArray[i] = inL[i];
+		}
 	}
-		
+
+    if(pThis->v[kParamClockInput] > 0){
+		static const float threshold = 0.5f;
+		float* clockIn = busFrames + ( pThis->v[kParamClockInput] - 1) * numFrames; // Clock input is the 3rd input (index 2)
+		float currentClockValue = clockIn[0]; // Use first sample for pulse detection, or use a more robust method if needed
+		bool clockPulse = (dtc->prevClockValue < threshold) && (currentClockValue >= threshold);
+		dtc->patchState.syncIn = clockPulse;
+		dtc->prevClockValue = currentClockValue;
+	}
     dtc->Oneiroi_->Process(*myBuffer);
 	    if ( !replaceR )
 		{ // are these loops really faster than putting the if inside?
@@ -381,7 +390,7 @@ void parameterChanged( _NT_algorithm* self, int p )
 		break;
 	case kParamOscUnison :
 	    patchCtrls.oscUnison = pThis->v[p]/10000.f;
-		if (patchCtrls.oscUnison >= -0.03f && patchCtrls.oscUnison <= 0.03f)
+		if (patchCtrls.oscUnison >= -0.0003f && patchCtrls.oscUnison <= 0.0003f)
         {
             patchCtrls.oscUnison = 0.f;
             patchState.oscUnisonCenterFlag = true;

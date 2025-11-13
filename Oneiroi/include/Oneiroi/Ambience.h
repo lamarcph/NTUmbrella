@@ -444,10 +444,6 @@ public:
         amp_ = 1.f;
         pan_ = 0.5f;
         xi_ = 1.f / patchState_->blockSize;
-        patchState_->debugvalue = 0.f;
-        patchState_->debugvalue2 = 0.f;
-        patchState_->debugvalue3 = 0.f;
-        patchState_->debugvalue4 = 0.f;
     }
     ~Ambience()
     {
@@ -511,7 +507,6 @@ public:
 
             float leftFb = dampFilters_[LEFT_CHANNEL]->Process(left + diffusers_[RIGHT_CHANNEL]->GetFbOut());
             float rightFb = dampFilters_[RIGHT_CHANNEL]->Process(right + diffusers_[LEFT_CHANNEL]->GetFbOut());
-            if (abs(patchState_->debugvalue2) < abs(leftFb) )patchState_->debugvalue2 = leftFb;
 
             leftFb = HardClip(left * (1.f - pan_) + leftFb);
             rightFb = HardClip(right * pan_ + rightFb);
@@ -533,9 +528,6 @@ public:
 
             left = comp_[LEFT_CHANNEL]->process(left * a) * kAmbienceMakeupGain;
             right = comp_[RIGHT_CHANNEL]->process(right * a) * kAmbienceMakeupGain;
-            
-            if (abs(patchState_->debugvalue3) < abs(left)) patchState_->debugvalue3 = left;
-            if (abs(patchState_->debugvalue4) < abs(right )) patchState_->debugvalue4 = right;
 
             leftOut[i] = CheapEqualPowerCrossFade(lIn, left, patchCtrls_->ambienceVol, 1.4f);
             rightOut[i] = CheapEqualPowerCrossFade(rIn, right, patchCtrls_->ambienceVol, 1.4f);

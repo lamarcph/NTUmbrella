@@ -172,8 +172,12 @@ public:
         SetDetune(d);
 
         saws_[LEFT_CHANNEL]->Process(f, output.getSamples(LEFT_CHANNEL));
-        saws_[RIGHT_CHANNEL]->Process(f, output.getSamples(RIGHT_CHANNEL));
-        
+        if (patchState_->oscUnisonCenterFlag)
+          output.getSamples(RIGHT_CHANNEL).copyFrom(output.getSamples(LEFT_CHANNEL));
+        else {
+          f = Modulate(patchCtrls_->oscPitch + patchCtrls_->oscPitch * -u, patchCtrls_->oscPitchModAmount, patchState_->modValue, 0, 0, kOscFreqMin, kOscFreqMax, patchState_->modAttenuverters, patchState_->cvAttenuverters);
+          saws_[RIGHT_CHANNEL]->Process(f, output.getSamples(RIGHT_CHANNEL));
+        }
         output.multiply(patchCtrls_->osc2Vol * kOScSuperSawGain);
     }
 };

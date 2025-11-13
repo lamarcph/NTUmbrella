@@ -148,6 +148,7 @@ public:
         }*/
 
         if (patchCtrls_->modLevel > 0.f) modulation_->Process();
+        
         clock_->Process();
 
         input_->copyFrom(buffer);
