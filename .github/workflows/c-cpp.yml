@@ -16,5 +16,5 @@ jobs:
     - name: configure
       run: cd Oneiroi
     - name: make
-      run: make
+      run: make -C Oneiroi
  
