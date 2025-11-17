@@ -162,7 +162,7 @@ void* pvPortRealloc(void *pv, size_t xWantedSize);*/
   memcpy(p, ptr, old_size);
   vPortFree(ptr);
   return p;
-}
+} */
 
 /* The calloc() function allocates memory for an array of  nmemb  elements */
 /* of  size bytes each and returns a pointer to the allocated memory. */
@@ -242,10 +242,10 @@ float fast_atan2f(float y, float x){
 /* static const uint32_t* pow_table = fast_pow_table; */
 /* static uint32_t pow_precision = fast_pow_precision; */
 
-static const float* log_table;
+/*static const float* log_table;
 static uint32_t log_precision;
 static const uint32_t* pow_table;
-static uint32_t pow_precision;
+static uint32_t pow_precision;*/
 
 #define M_LOG210 3.32192809488736
 

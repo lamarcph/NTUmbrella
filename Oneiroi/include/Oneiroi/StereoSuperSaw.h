@@ -30,7 +30,7 @@ public:
         }
         detune_ = 0;
         patchState_ = patchState;
-        float oldFreq_ = 261.63f;
+        oldFreq_ = 261.63f;
     }
     ~SuperSaw()
     {

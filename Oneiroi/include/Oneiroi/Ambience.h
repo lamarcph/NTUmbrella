@@ -500,7 +500,6 @@ public:
             
             float left = reversers_[LEFT_CHANNEL]->LastOut() * reverse_ + lIn * r;
             float right = reversers_[RIGHT_CHANNEL]->LastOut() * reverse_ + rIn * r;
-            if (abs(patchState_->debugvalue) < abs(left) )patchState_->debugvalue = left;
         
             reversers_[LEFT_CHANNEL]->Process(lIn);
             reversers_[RIGHT_CHANNEL]->Process(rIn);
@@ -521,7 +520,6 @@ public:
             left = diffusers_[LEFT_CHANNEL]->Process(leftFb, x);
             right = diffusers_[RIGHT_CHANNEL]->Process(rightFb, x);
             
-
             x += xi_;
 
             float a = Map(decay_, 0.f, 1.f, amp_ * 1.3f, amp_);

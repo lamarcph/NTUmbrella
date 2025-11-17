@@ -59,9 +59,6 @@ public:
 
     inline void ReadLinear(float p1, float p2, float x, float &left, float &right)
     {
-        float l0, l1;
-        float r0, r1;
-
         uint32_t i1 = uint32_t(p1);
         uint32_t i2 = uint32_t(p2);
         float f1 = p1 - i1;

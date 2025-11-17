@@ -27,7 +27,7 @@ public:
     // Ported and adapted from Emilie Gillet's Limiter in Rings.
     void Process(AudioBuffer& input, AudioBuffer& output, float preGain = 1.f)
     {
-        for (size_t i = 0; i < output.getSize(); i++)
+        for (int i = 0; i < output.getSize(); i++)
         {
             float l_pre = input.getSamples(LEFT_CHANNEL).getElement(i) * preGain;
             float r_pre = input.getSamples(RIGHT_CHANNEL).getElement(i) * preGain;
@@ -47,7 +47,7 @@ public:
 
     void ProcessSoft(AudioBuffer& input, AudioBuffer& output)
     {
-        for (size_t i = 0; i < output.getSize(); i++)
+        for (int i = 0; i < output.getSize(); i++)
         {
             output.getSamples(LEFT_CHANNEL).setElement(i, SoftLimit(input.getSamples(LEFT_CHANNEL).getElement(i)));
             output.getSamples(RIGHT_CHANNEL).setElement(i, SoftLimit(input.getSamples(RIGHT_CHANNEL).getElement(i)));

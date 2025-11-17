@@ -9,7 +9,7 @@ protected:
   size_t blocksize;
   FloatArray* buffers;
 public:
-  NTSampleBuffer(int channels, size_t blocksize)
+  NTSampleBuffer(size_t channels, size_t blocksize)
     :channels(channels), blocksize(blocksize) {
     buffers = new FloatArray[channels];
     for(size_t i=0; i<channels; ++i)
@@ -32,7 +32,7 @@ public:
       buffers[i].clear();
   }
   inline FloatArray getSamples(int channel){
-    if(channel < channels)
+    if(static_cast<size_t>(channel) < channels)
       return buffers[channel];
     return FloatArray();
   }

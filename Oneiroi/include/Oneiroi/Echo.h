@@ -229,7 +229,7 @@ public:
 
         float x = 0;
 
-        for (int i = 0; i < size; i++)
+        for (size_t i = 0; i < size; i++)
         {
             // Using crossfade between two different tap times when the clock is
             // external and a filtered density param for when the clock is

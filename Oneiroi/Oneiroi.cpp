@@ -129,11 +129,11 @@ static const _NT_parameter	parameters[] = {
 	
 	{ .name = "Vol", .min = 0, .max = 1000, .def = 750, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Mode", .min = 0, .max = 3, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsFiltermode },
-    { .name = "Cutoff", .min = 0, .max = 22000, .def = 22000, .unit = kNT_unitHz, .scaling = NULL, .enumStrings = NULL },
+    { .name = "Cutoff", .min = 0, .max = 22000, .def = 22000, .unit = kNT_unitHz, .scaling = 0, .enumStrings = NULL },
     { .name = "Cutoff Mod",  .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Resonance", .min = 0, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Res Mod",  .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Position", .min = 0, .max = 3, .def = 0, .unit = kNT_unitEnum, .scaling = NULL, .enumStrings = enumStringsFilterPos },
+    { .name = "Position", .min = 0, .max = 3, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsFilterPos },
 	
 	{ .name = "Vol", .min = 0, .max = 1000, .def = 750, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Sound on Sound", .min = 0, .max = 1000, .def = 0, kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
@@ -144,8 +144,8 @@ static const _NT_parameter	parameters[] = {
     { .name = "StartModAmount",  .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Loop Length", .min = 0, .max = 1000, .def = 1000, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "LengthModAmount", .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Recording", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = NULL, .enumStrings = enumStringsOnOff },
-    { .name = "Resampling", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = NULL, .enumStrings = enumStringsOnOff },
+    { .name = "Recording", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
+    { .name = "Resampling", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
 
     { .name = "Resonator Vol", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Resonator Tune", .min = -1200, .max = 1200, .def = 0, .unit = kNT_unitCents, .scaling = 0, .enumStrings = NULL },
@@ -585,7 +585,7 @@ static const _NT_factory factory =
 	.guid = NT_MULTICHAR( 'B', 'o', 'O', 'I' ),
 	.name = "Oneiroi",
 	.description = "Oneiroi from Befaco",
-	.numSpecifications = NULL,
+	.numSpecifications = 0,
 	.specifications = NULL,
 	.calculateRequirements = calculateRequirements,
 	.construct = construct,

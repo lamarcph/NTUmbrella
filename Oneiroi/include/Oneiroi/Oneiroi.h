@@ -125,27 +125,7 @@ public:
 
     inline void Process(AudioBuffer &buffer)
     {
-        //FloatArray left = buffer.getSamples(LEFT_CHANNEL);
-        //FloatArray right = buffer.getSamples(RIGHT_CHANNEL);
-
         inputDcFilter_->process(buffer, buffer);
-
-        const int size = buffer.getSize();
-
-        // Input leds.
-        /*for (size_t i = 0; i < size; i++)
-        {
-            float l;
-            if (patchCtrls_->looperResampling)
-            {
-                l = Mix2(inEnvFollower_[0]->process(resample_->getSamples(LEFT_CHANNEL)[i]), inEnvFollower_[1]->process(resample_->getSamples(RIGHT_CHANNEL)[i])) * kLooperResampleLedAtt;
-            }
-            else
-            {
-                l = Mix2(inEnvFollower_[0]->process(left[i]), inEnvFollower_[1]->process(right[i]));
-            }
-            patchState_->inputLevel[i] = l;
-        }*/
 
         if (patchCtrls_->modLevel > 0.f) modulation_->Process();
         
