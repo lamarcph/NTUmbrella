@@ -17,12 +17,6 @@ jobs:
           submodules: true  # Checkout first-level submodules
           fetch-depth: 0  # Fetch all history and tags for release notes
 
-      - name: Initialize nested submodules
-        run: |
-          # Initialize stmlib submodule within mutable-instruments (needed for build)
-          cd external/mutable-instruments
-          git submodule update --init stmlib
-
       - name: Install dependencies via Homebrew
         run: |
           brew update
