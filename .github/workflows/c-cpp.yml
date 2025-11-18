@@ -44,15 +44,9 @@ jobs:
           zip -r ../nt_oneiroi-plugin.zip programs
           cd ..
 
-      - name: Generate Release Notes
-        run: |
-          chmod +x ./scripts/release-notes-for-workflow.sh
-          ./scripts/release-notes-for-workflow.sh ${{ github.ref_name }}
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: nt_oneiroi-plugin.zip
-          body_path: release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
