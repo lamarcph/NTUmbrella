@@ -1,9 +1,7 @@
 name: Make NT Umbrella Plug-in Archive
 
 on:
-  push:
-    tags:
-      - "v*" # Runs action on pushed tags starting with 'v'
+  push: # Runs on all pushes (every branch and tag)
 
 permissions:
   contents: write # Needed for creating/updating GitHub releases
