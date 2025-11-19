@@ -125,6 +125,8 @@ public:
 
     inline void Process(AudioBuffer &buffer)
     {
+        patchState_->debugvalue2 = patchCtrls_->inputVol;
+        buffer.multiply(patchCtrls_->inputVol);
         inputDcFilter_->process(buffer, buffer);
 
         if (patchCtrls_->modLevel > 0.f) modulation_->Process();
@@ -132,7 +134,7 @@ public:
         clock_->Process();
 
         input_->copyFrom(buffer);
-        input_->multiply(patchCtrls_->inputVol);
+      
 
         if (patchCtrls_->looperResampling)
         {

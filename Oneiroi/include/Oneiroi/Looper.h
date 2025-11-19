@@ -12,14 +12,6 @@
 #include <stdint.h>
 #include <cmath>
 
-
-/*To diagnose this:
-
-Check if patchState_->debugvalue (which is set to speed_ in SetSpeed()) shows negative values when you expect them
-Verify that direction_ is actually set to PLAYBACK_BACKWARDS when speed is negative
-Check the implementation of LooperBuffer::Read() to ensure it correctly handles backwards playback
-You would need to add some debug logging or check these values while running to determine exactly where the issue occurs. The code as shown should support negative speeds (backwards playback) unless there's an issue in the LooperBuffer implementation or in how the speed value is being processed before reaching SetSpeed().*/
-
 class Looper
 {
 private:
