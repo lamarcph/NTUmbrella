@@ -40,14 +40,6 @@ public:
         }
     }
 
-    void SetFreq(float value)
-    {
-     for (size_t i = 0; i < 7; i++)
-        {
-            oscs_[i]->setFrequency(value * detunes_[i]);
-        }
-    }
-
     void SetDetune(float value, bool minor = false)
     {
         detune_ = value * 0.4f;
@@ -75,7 +67,8 @@ public:
 
         value = Clamp(value * 0.5f, 0.005f, 0.5f);
 
-        float y = -0.73764f * powf(value, 2.f) + 1.2841f * value + 0.044372f; // this was fast_powf
+        float value_sq = value * value; 
+        float y = -0.73764f * value_sq + 1.2841f * value + 0.044372f;
         volumes_[0] = y;
         volumes_[1] = y;
         volumes_[2] = y;
@@ -98,14 +91,23 @@ public:
     void Process(float freq, FloatArray output)
     {
         size_t size = output.getSize();
+        // Interpolate the base frequency over the block duration
         ParameterInterpolator freqParam(&oldFreq_, freq * 0.5f, size);
 
         for (size_t i = 0; i < size; i++)
         {
-        //    SetFreq(freq);
-        SetFreq(freqParam.Next());
+            // Calculate the current interpolated frequency value
+            float currentFreq = freqParam.Next();
+
+            // OPTIMIZATION: Apply the frequency to all 7 oscillators directly here.
+            // This eliminates 7 function calls to the now-removed SetFreq() wrapper 
+            // and the function call overhead for each sample.
             for (size_t j = 0; j < 7; j++)
             {
+                // Set frequency based on the base freq and the detune multiplier
+                oscs_[j]->setFrequency(currentFreq * detunes_[j]);
+                
+                // Generate the sample and mix
                 output[i] += oscs_[j]->generate() * volumes_[j];
             }
         }

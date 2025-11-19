@@ -213,37 +213,50 @@ private:
         }
     }
 
-    void SetTune(float value)
+   void SetTune(float value)
+{
+    // The previous value check is removed here, as we must always tick the task_ counter 
+    // to allow the 6-step smoothing cycle to finish, even if the knob is held steady.
+
+    // 1. Check if the value has changed
+    bool tuneChanged = (tune_ != value);
+
+    // 2. Update the stored value
+    if (tuneChanged)
     {
         tune_ = value;
-
-        // Spread the updates in time.
-        task_ = (task_ + 1) % 6;
-        if (task_ == 0)
-        {
-            SetSemiOffset(0, Map(tune_, 0.f, 1.f, -24, ranges_[0]));
-        }
-        if (tune_ < 0.5f && task_ == 1)
-        {
-            SetSemiOffset(1, Map(tune_, 0.f, 0.5f, -12, ranges_[1]));
-        }
-        if (tune_ < 0.3f && task_ == 2)
-        {
-            SetSemiOffset(2, Map(tune_, 0.f, 0.3f, -6, ranges_[2]));
-        }
-        if (tune_ >= 0.3f && tune_ < 0.7f && task_ == 3)
-        {
-            SetSemiOffset(2, Map(tune_, 0.3f, 0.7f, -6, ranges_[2]));
-        }
-        if (tune_ >= 0.5f && task_ == 4)
-        {
-            SetSemiOffset(1, Map(tune_, 0.5f, 1.f, -12, ranges_[1]));
-        }
-        if (tune_ >= 0.7f && task_ == 5)
-        {
-            SetSemiOffset(2, Map(tune_, 0.7f, 1.f, -6, ranges_[2]));
-        }
     }
+    
+    // 3. Always advance the smoothing state machine (task_).
+    task_ = (task_ + 1) % 6;
+
+    // The rest of the logic remains the same, ensuring one pole update happens per call.
+
+    if (task_ == 0)
+    {
+        SetSemiOffset(0, Map(tune_, 0.f, 1.f, -24, ranges_[0]));
+    }
+    if (tune_ < 0.5f && task_ == 1)
+    {
+        SetSemiOffset(1, Map(tune_, 0.f, 0.5f, -12, ranges_[1]));
+    }
+    if (tune_ < 0.3f && task_ == 2)
+    {
+        SetSemiOffset(2, Map(tune_, 0.f, 0.3f, -6, ranges_[2]));
+    }
+    if (tune_ >= 0.3f && tune_ < 0.7f && task_ == 3)
+    {
+        SetSemiOffset(2, Map(tune_, 0.3f, 0.7f, -6, ranges_[2]));
+    }
+    if (tune_ >= 0.5f && task_ == 4)
+    {
+        SetSemiOffset(1, Map(tune_, 0.5f, 1.f, -12, ranges_[1]));
+    }
+    if (tune_ >= 0.7f && task_ == 5)
+    {
+        SetSemiOffset(2, Map(tune_, 0.7f, 1.f, -6, ranges_[2]));
+    }
+}
 
     void SetFeedback(float value, bool init = false)
     {
@@ -330,55 +343,62 @@ public:
         delete obj;
     }
 
-    void process(AudioBuffer &input, AudioBuffer &output)
+void process(AudioBuffer &input, AudioBuffer &output)
+{
+    size_t size = output.getSize();
+    FloatArray leftIn = input.getSamples(LEFT_CHANNEL);
+    FloatArray rightIn = input.getSamples(RIGHT_CHANNEL);
+    FloatArray leftOut = output.getSamples(LEFT_CHANNEL);
+    FloatArray rightOut = output.getSamples(RIGHT_CHANNEL);
+
+    // --- OPTIMIZATION START: Control Rate Updates (Runs only once per block) ---
+
+    // 1. Dissonance
+    SetDissonance(patchCtrls_->resonatorDissonance);
+
+    // 2. Feedback (No need for per-sample smoothing, SetFeedback only updates internal pole states)
+    float f = Modulate(patchCtrls_->resonatorFeedback, patchCtrls_->resonatorFeedbackModAmount, patchState_->modValue, patchCtrls_->resonatorFeedbackCvAmount, patchCvs_->resonatorFeedback, -1.f, 1.f, patchState_->modAttenuverters, patchState_->cvAttenuverters);
+    SetFeedback(f);
+
+    // 3. Tune (The tuning update is now spread over 6 blocks by SetTune itself)
+    float t = Modulate(patchCtrls_->resonatorTune, patchCtrls_->resonatorTuneModAmount, patchState_->modValue, patchCtrls_->resonatorTuneCvAmount, patchCvs_->resonatorTune, -1.f, 1.f, patchState_->modAttenuverters, patchState_->cvAttenuverters);
+    SetTune(t);
+    // Note: The ParameterInterpolator 'tuningParam' is no longer needed/used.
+    // --- OPTIMIZATION END ---
+
+    for (size_t i = 0; i < size; i++)
     {
-        size_t size = output.getSize();
-        FloatArray leftIn = input.getSamples(LEFT_CHANNEL);
-        FloatArray rightIn = input.getSamples(RIGHT_CHANNEL);
-        FloatArray leftOut = output.getSamples(LEFT_CHANNEL);
-        FloatArray rightOut = output.getSamples(RIGHT_CHANNEL);
+        // SetTune(tuningParam.Next()); <--- REMOVED: Saving CPU by not interpolating/calculating here
 
-        SetDissonance(patchCtrls_->resonatorDissonance);
+        float lIn = Clamp(leftIn[i], -3.f, 3.f);
+        float rIn = Clamp(rightIn[i], -3.f, 3.f);
 
-        float t = Modulate(patchCtrls_->resonatorTune, patchCtrls_->resonatorTuneModAmount, patchState_->modValue, patchCtrls_->resonatorTuneCvAmount, patchCvs_->resonatorTune, -1.f, 1.f, patchState_->modAttenuverters, patchState_->cvAttenuverters);
-        ParameterInterpolator tuningParam(&oldTuning_, t, size);
+        float left = poles_[1]->Process(lIn, LEFT_CHANNEL);
+        float right = poles_[2]->Process(rIn, RIGHT_CHANNEL);
 
-        float f = Modulate(patchCtrls_->resonatorFeedback, patchCtrls_->resonatorFeedbackModAmount, patchState_->modValue, patchCtrls_->resonatorFeedbackCvAmount, patchCvs_->resonatorFeedback, -1.f, 1.f, patchState_->modAttenuverters, patchState_->cvAttenuverters);
-        SetFeedback(f);
+        float oLeft = left * 0.75f + right * 0.25f;
+        float oRight = left * 0.25f + right * 0.75f;
 
-        for (size_t i = 0; i < size; i++)
-        {
-            SetTune(tuningParam.Next());
+        left = 0;
+        right = 0;
+        poles_[0]->Process(lIn, rIn, left, right);
+        oLeft += left;
+        oRight += right;
 
-            float lIn = Clamp(leftIn[i], -3.f, 3.f);
-            float rIn = Clamp(rightIn[i], -3.f, 3.f);
+        oLeft *= 1.f - ef_[LEFT_CHANNEL]->process(oLeft);
+        oRight *= 1.f - ef_[RIGHT_CHANNEL]->process(oRight);
 
-            float left = poles_[1]->Process(lIn, LEFT_CHANNEL);
-            float right = poles_[2]->Process(rIn, RIGHT_CHANNEL);
+        oLeft *= amp_;
+        oRight *= amp_;
 
-            float oLeft = left * 0.75f + right * 0.25f;
-            float oRight = left * 0.25f + right * 0.75f;
+        oLeft = notches_[LEFT_CHANNEL]->process(oLeft);
+        oRight = notches_[RIGHT_CHANNEL]->process(oRight);
 
-            left = 0;
-            right = 0;
-            poles_[0]->Process(lIn, rIn, left, right);
-            oLeft += left;
-            oRight += right;
+        oLeft = hs_[LEFT_CHANNEL]->process(oLeft);
+        oRight = hs_[RIGHT_CHANNEL]->process(oRight);
 
-            oLeft *= 1.f - ef_[LEFT_CHANNEL]->process(oLeft);
-            oRight *= 1.f - ef_[RIGHT_CHANNEL]->process(oRight);
-
-            oLeft *= amp_;
-            oRight *= amp_;
-
-            oLeft = notches_[LEFT_CHANNEL]->process(oLeft);
-            oRight = notches_[RIGHT_CHANNEL]->process(oRight);
-
-            oLeft = hs_[LEFT_CHANNEL]->process(oLeft);
-            oRight = hs_[RIGHT_CHANNEL]->process(oRight);
-
-            leftOut[i] = CheapEqualPowerCrossFade(lIn, oLeft * kResoMakeupGain, patchCtrls_->resonatorVol, 1.4f);
-            rightOut[i] = CheapEqualPowerCrossFade(rIn, oRight * kResoMakeupGain, patchCtrls_->resonatorVol, 1.4f);
-        }
+        leftOut[i] = CheapEqualPowerCrossFade(lIn, oLeft * kResoMakeupGain, patchCtrls_->resonatorVol, 1.4f);
+        rightOut[i] = CheapEqualPowerCrossFade(rIn, oRight * kResoMakeupGain, patchCtrls_->resonatorVol, 1.4f);
     }
+  }
 };
