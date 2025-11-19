@@ -137,10 +137,10 @@ constexpr float kFilterCombGainMax = 0.2f;
 
 constexpr float kResoGainMin = 0.5f;
 constexpr float kResoGainMax = 1.2f;
-constexpr float kResoMakeupGain = 1.f;
+constexpr float kResoMakeupGain = 1.2f;
 constexpr int32_t kResoBufferSize = 2400;
-constexpr float kResoInfiniteFeedbackThreshold = 0.999f;
-constexpr float kResoInfiniteFeedbackLevel = 1.001f;
+constexpr float kResoInfiniteFeedbackThreshold = 0.99f;
+constexpr float kResoInfiniteFeedbackLevel = 1.05f;
 
 constexpr int32_t kEchoFadeSamples = 2400; // 50 ms @ audio rate
 constexpr int32_t kEchoMinLengthSamples = 480; // 10 ms @ audio rate

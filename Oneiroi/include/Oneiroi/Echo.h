@@ -131,7 +131,6 @@ private:
             echoDensity_ = value;
 
            float d = MapExpo(echoDensity_, 0.f, 1.f, kEchoMinLengthSamples, patchState_->clockSamples * kEchoInternalClockMultiplier);
-            patchState_->debugvalue2 = d;
             size_t s = kEchoFadeSamples;
             ParameterInterpolator densityParam(&oldDensity_, d, s);
 

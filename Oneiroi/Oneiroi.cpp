@@ -11,7 +11,7 @@ struct _OneiroiAlgorithm_DTC
     PatchState patchState;
 	Oneiroi* Oneiroi_;
 	AudioBuffer* buffer;
-	float semi= 0.f, fine=0.f, v8c = 0.f, prevClockValue = 0.f;
+	float semi= 0.f, fine=0.f, v8c = 0.f, prevClockValue = 0.f, pitchInput=0.f;
 	uint8_t dtcMemory[_allocatableDTCMemorySize];
 };
 
@@ -31,9 +31,9 @@ enum
     kParamRightOutputMode,
     kParamLeftInput,
     kParamRightInput,
-	kParamClockInput,
+    kParamClockInput,
+    kParamPitchInput,
 
-    
     kParamInputLevel, 
     kParamOutputLevel,
 
@@ -108,13 +108,14 @@ static char const * const enumStringsSSWT[] = {
 static const _NT_parameter	parameters[] = {
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Left Output", 1, 13 )
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Right Output", 1, 14 )
-    NT_PARAMETER_AUDIO_INPUT("Left Input", 0, 1)
-    NT_PARAMETER_AUDIO_INPUT("Right Input", 0, 2)
-	NT_PARAMETER_AUDIO_INPUT("Clock Input", 0, 0)
+    NT_PARAMETER_AUDIO_INPUT("Left Input", 0, 0)
+    NT_PARAMETER_AUDIO_INPUT("Right Input", 0, 0)
+	NT_PARAMETER_CV_INPUT("Clock Input", 0, 0)
+	NT_PARAMETER_CV_INPUT("Pitch Input", 0, 0)
 
     // --- Add new parameters here ---
-    { .name = "Input Level", .min = 0, .max = 1000, .def = 700, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Output Level", .min = 0, .max = 1000, .def = 700, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Input Level", .min = 0, .max = 1000, .def = 700, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Output Level", .min = 0, .max = 1000, .def = 700, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
 
     { .name = "Semi", .min = -48, .max = 48, .def = 0, .unit = kNT_unitSemitones, .scaling = 0, .enumStrings = NULL },
 	{ .name = "Fine", .min =-50 , .max = 50, .def = 0, .unit = kNT_unitCents, .scaling = 0, .enumStrings = NULL },
@@ -136,13 +137,13 @@ static const _NT_parameter	parameters[] = {
     { .name = "Position", .min = 0, .max = 3, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsFilterPos },
 	
 	{ .name = "Vol", .min = 0, .max = 1000, .def = 750, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Sound on Sound", .min = 0, .max = 1000, .def = 0, kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Filter", .min = 0, .max = 1000, .def = 550, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL }, 
-    { .name = "Speed", .min = -2000, .max = 2000, .def = 1000, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Sound on Sound", .min = 0, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "DJ Filter", .min = 0, .max = 1000, .def = 550, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL }, 
+    { .name = "Speed", .min = -2000, .max = 2000, .def = 1000, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "SpeedModAmount",  .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Start Position", .min = 0, .max = 1000, .def = 0, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Start Position", .min = 0, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "StartModAmount",  .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Loop Length", .min = 0, .max = 1000, .def = 1000, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Loop Length", .min = 0, .max = 1000, .def = 1000, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "LengthModAmount", .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Recording", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
     { .name = "Resampling", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
@@ -153,19 +154,19 @@ static const _NT_parameter	parameters[] = {
     { .name = "Resonator Dissonance", .min = 0, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
 
     { .name = "Echo Vol", .min = 0, .max = 1000, .def = 250, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Echo Density", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Echo Repeats", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Echo Filter", .min = 0, .max = 1000, .def = 550, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Echo Density", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Echo Repeats", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Echo DJ Filter", .min = 0, .max = 1000, .def = 550, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
 
     { .name = "Ambience Vol", .min = 0, .max = 1000, .def = 175, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Ambience Decay", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Ambience Spacetime", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Ambience Decay", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Ambience Spacetime", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Ambience Auto Pan", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
 
     // Modulation
-    { .name = "Mod Type", .min = 0, .max = 800, .def = 0, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Mod Speed", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Mod Level", .min = 0, .max = 1000, .def = 250, .unit = kNT_unitPercent, .scaling = kNT_scaling1000, .enumStrings = NULL }
+    { .name = "Mod Type", .min = 0, .max = 800, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Mod Speed", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
+    { .name = "Mod Level", .min = 0, .max = 1000, .def = 250, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL }
 
 };  
 
@@ -177,7 +178,7 @@ static const uint8_t page4[] = { kParamresonatorVol, kParamresonatorTune, kParam
 static const uint8_t page5[] = { kParamechoVol, kParamechoDensity, kParamechoRepeats, kParamechoFilter };
 static const uint8_t page6[] = { kParamambienceVol, kParamambienceDecay, kParamambienceSpacetime, kParamambienceAutoPan };
 static const uint8_t page7[] = { kParammodType, kParammodSpeed, kParammodLevel};
-static const uint8_t page8[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamClockInput,  kParamInputLevel, kParamOutputLevel };
+static const uint8_t page8[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamClockInput, kParamPitchInput, kParamInputLevel, kParamOutputLevel };
 
 
 
@@ -332,33 +333,40 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
 		dtc->patchState.syncIn = clockPulse;
 		dtc->prevClockValue = currentClockValue;
 	}
+
+	if(pThis->v[kParamPitchInput] > 0){
+		float* PitchIn = busFrames + ( pThis->v[kParamPitchInput] - 1) * numFrames;
+		pThis->dtc->pitchInput = PitchIn[0];
+	} else pThis->dtc->pitchInput = 0.0f;
+
+	dtc->patchCtrls.oscPitch = 261.63f * semi2Ratio(pThis->dtc->semi) * semi2Ratio(pThis->dtc->fine/100.f) *semi2Ratio(pThis->dtc->v8c*12.f) * semi2Ratio(pThis->dtc->pitchInput*12.f); 
+	
     dtc->Oneiroi_->Process(*myBuffer);
-	    if ( !replaceR )
-		{ // are these loops really faster than putting the if inside?
-			for ( int i=0; i<numFrames; ++i ){
-				outR[i] += chRArray[i];
-			}
+	if ( !replaceR )
+	{ // are these loops really faster than putting the if inside?
+		for ( int i=0; i<numFrames; ++i ){
+			outR[i] += chRArray[i];
 		}
-		else
-		{
-			for ( int i=0; i<numFrames; ++i ){
-				outR[i] = chRArray[i];
-			}
+	}
+	else
+	{
+		for ( int i=0; i<numFrames; ++i ){
+			outR[i] = chRArray[i];
 		}
+	}
 
-        if ( !replaceL )
-		{ 
-			for ( int i=0; i<numFrames; ++i ){
-				outL[i] += chLArray[i];
-			}
+	if ( !replaceL )
+	{ 
+		for ( int i=0; i<numFrames; ++i ){
+			outL[i] += chLArray[i];
 		}
-		else
-		{
-			for ( int i=0; i<numFrames; ++i ){
-				outL[i] =chLArray[i];
-			}
+	}
+	else
+	{
+		for ( int i=0; i<numFrames; ++i ){
+			outL[i] =chLArray[i];
 		}
-
+	}
 }
 
 void parameterChanged( _NT_algorithm* self, int p )
@@ -371,10 +379,10 @@ void parameterChanged( _NT_algorithm* self, int p )
 	{
         // --- Handle new parameters ---
         case kParamInputLevel:
-            patchCtrls.inputVol = pThis->v[p] / 1000.f;
+            patchCtrls.inputVol = pThis->v[p] / 10000.f; // we need to bring this back to -1.0f to 1.0f
             break;
         case kParamOutputLevel:
-            patchState.outLevel = pThis->v[p] / 1000.f;
+            patchState.outLevel = pThis->v[p] / 75.f; // Aiming for -5/+5V
             break;
     case kParamOscSemi :
 		pThis->dtc->semi = pThis->v[p];
@@ -548,9 +556,7 @@ void parameterChanged( _NT_algorithm* self, int p )
 
 	default:
 		break;
-	}
-    patchCtrls.oscPitch = 261.63f * semi2Ratio(pThis->dtc->semi) * semi2Ratio(pThis->dtc->fine/100.f) *semi2Ratio(pThis->dtc->v8c*12.f);
-	
+	}	
 }
 
 bool	draw( _NT_algorithm* self )

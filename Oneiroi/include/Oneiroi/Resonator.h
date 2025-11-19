@@ -5,6 +5,7 @@
 #include "BiquadFilter.h"
 #include "EnvFollower.h"
 #include "DcBlockingFilter.h"
+#include "Compressor.h"
 
 class Pole
 {
@@ -27,6 +28,7 @@ public:
         feedback_ = 0;
         filter_ = 0;
         detune_ = 0;
+        infinite_ = false;
     }
     ~Pole()
     {
@@ -71,17 +73,8 @@ public:
 
     void SetFeedback(float feedback)
     {
-        feedback_ = feedback;
-
-        // Infinite feedback.
-        if (feedback_ > kResoInfiniteFeedbackThreshold)
-        {
-            feedback_ = kResoInfiniteFeedbackLevel;
-        }
-        else if (feedback_ > 0.99f)
-        {
-            feedback_ = 1.f;
-        }
+        infinite_ = feedback > kResoInfiniteFeedbackThreshold;
+        feedback_ = VariableCrossFade(0.f, 1.f, feedback, kResoInfiniteFeedbackThreshold - 0.01f);
     }
 
     void SetDissonance(float detune)
@@ -104,9 +97,9 @@ public:
         float mix = HardClip(dc_[channel]->process(in + out));
 
         // Handle infinite feedback.
-        if (feedback_ == kResoInfiniteFeedbackLevel)
+        if (infinite_)
         {
-            mix *= 1.095f - ef_[channel]->process(mix);
+            mix *= feedback_ * kResoInfiniteFeedbackLevel - ef_[channel]->process(mix);
         }
 
         delays_[channel]->write(mix);
@@ -124,10 +117,10 @@ public:
         float rightMix = HardClip(dc_[RIGHT_CHANNEL]->process(rightIn + rightOut));
 
         // Handle infinite feedback.
-        if (feedback_ == kResoInfiniteFeedbackLevel)
+        if (infinite_)
         {
-            leftMix *= 1.095f - ef_[LEFT_CHANNEL]->process(leftMix);
-            rightMix *= 1.095f - ef_[RIGHT_CHANNEL]->process(rightMix);
+            leftMix *= feedback_ * kResoInfiniteFeedbackLevel - ef_[LEFT_CHANNEL]->process(leftMix);
+            rightMix *= feedback_ * kResoInfiniteFeedbackLevel - ef_[RIGHT_CHANNEL]->process(rightMix);
         }
 
         delays_[LEFT_CHANNEL]->write(leftMix);
@@ -151,6 +144,8 @@ private:
     float feedback_;
     float filter_;
     float detune_;
+
+    bool infinite_;
 
     void SetFreq()
     {
@@ -184,6 +179,7 @@ private:
     Pole* poles_[3];
 
     BiquadFilter *notches_[2];
+    BiquadFilter *hs_[2];
     EnvFollower *ef_[2];
 
     float amp_;
@@ -206,7 +202,6 @@ private:
             poles_[0]->SetSemiOffset(offset);
             poles_[1]->SetSemiOffset(offset + poles_[1]->GetSemiOffset());
             poles_[2]->SetSemiOffset(offset + poles_[2]->GetSemiOffset());
-
         }
         else if (idx == 1)
         {
@@ -297,7 +292,9 @@ public:
         for (size_t i = 0; i < 2; i++)
         {
             notches_[i] = BiquadFilter::create(patchState_->sampleRate);
-            notches_[i]->setNotch(8000.f, FilterStage::BUTTERWORTH_Q);
+            notches_[i]->setNotch(8000.f, FilterStage::SALLEN_KEY_Q);
+            hs_[i] = BiquadFilter::create(patchState_->sampleRate);
+            hs_[i]->setHighShelf(8000.f, -24.f);
             ef_[i] = EnvFollower::create();
         }
 
@@ -318,6 +315,7 @@ public:
         for (size_t i = 0; i < 2; i++)
         {
             BiquadFilter::destroy(notches_[i]);
+            BiquadFilter::destroy(hs_[i]);
             EnvFollower::destroy(ef_[i]);
         }
     }
@@ -351,7 +349,7 @@ public:
         for (size_t i = 0; i < size; i++)
         {
             SetTune(tuningParam.Next());
-            
+
             float lIn = Clamp(leftIn[i], -3.f, 3.f);
             float rIn = Clamp(rightIn[i], -3.f, 3.f);
 
@@ -375,6 +373,9 @@ public:
 
             oLeft = notches_[LEFT_CHANNEL]->process(oLeft);
             oRight = notches_[RIGHT_CHANNEL]->process(oRight);
+
+            oLeft = hs_[LEFT_CHANNEL]->process(oLeft);
+            oRight = hs_[RIGHT_CHANNEL]->process(oRight);
 
             leftOut[i] = CheapEqualPowerCrossFade(lIn, oLeft * kResoMakeupGain, patchCtrls_->resonatorVol, 1.4f);
             rightOut[i] = CheapEqualPowerCrossFade(rIn, oRight * kResoMakeupGain, patchCtrls_->resonatorVol, 1.4f);
