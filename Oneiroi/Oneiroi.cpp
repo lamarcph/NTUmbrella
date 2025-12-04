@@ -67,6 +67,7 @@ enum
     kParamlooperLengthModAmount,
     kParamlooperRecording,
     kParamlooperResampling,
+	kParamlooperClear,
 
     kParamresonatorVol,
     kParamresonatorTune,
@@ -108,7 +109,7 @@ static char const * const enumStringsSSWT[] = {
 static const _NT_parameter	parameters[] = {
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Left Output", 1, 13 )
     NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Right Output", 1, 14 )
-    NT_PARAMETER_AUDIO_INPUT("Left Input", 0, 0)
+    NT_PARAMETER_AUDIO_INPUT("Left Input (mono)", 0, 0)
     NT_PARAMETER_AUDIO_INPUT("Right Input", 0, 0)
 	NT_PARAMETER_CV_INPUT("Clock Input", 0, 0)
 	NT_PARAMETER_CV_INPUT("Pitch Input", 0, 0)
@@ -147,6 +148,8 @@ static const _NT_parameter	parameters[] = {
     { .name = "LengthModAmount", .min = -1000, .max = 1000, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Recording", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
     { .name = "Resampling", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
+  	{ .name = "Clear loop", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsOnOff },
+
 
     { .name = "Resonator Vol", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitDb, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Resonator Tune", .min = -1200, .max = 1200, .def = 0, .unit = kNT_unitCents, .scaling = 0, .enumStrings = NULL },
@@ -173,7 +176,7 @@ static const _NT_parameter	parameters[] = {
 
 static const uint8_t page1[] = { kParamOscSemi,	kParamOscFine,kParamOscV8c, kParamOscDetune, kParamOscPitchModAmount, kParamOscUnison, kParamOscDetuneModAmount, kParamSSOscVol, kParamSinOscVol, kParamSSWT};
 static const uint8_t page2[] = {kParamfilterMode, kParamfilterCutoff, kParamfilterCutoffModAmount, kParamfilterResonance, kParamfilterResonanceModAmount, kParamfilterPosition, kParamfilterVol};
-static const uint8_t page3[] = { kParamlooperVol,kParamlooperSos, kParamlooperFilter, kParamlooperSpeed, kParamlooperSpeedModAmount, kParamlooperStart, kParamlooperStartModAmount, kParamlooperLength, kParamlooperLengthModAmount, kParamlooperRecording, kParamlooperResampling};
+static const uint8_t page3[] = { kParamlooperVol,kParamlooperSos, kParamlooperFilter, kParamlooperSpeed, kParamlooperSpeedModAmount, kParamlooperStart, kParamlooperStartModAmount, kParamlooperLength, kParamlooperLengthModAmount, kParamlooperRecording, kParamlooperResampling, kParamlooperClear};
 static const uint8_t page4[] = { kParamresonatorVol, kParamresonatorTune, kParamresonatorFeedback, kParamresonatorDissonance};
 static const uint8_t page5[] = { kParamechoVol, kParamechoDensity, kParamechoRepeats, kParamechoFilter };
 static const uint8_t page6[] = { kParamambienceVol, kParamambienceDecay, kParamambienceSpacetime, kParamambienceAutoPan };
@@ -323,8 +326,13 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
 		chRArray[i] = inR[i];
 		chLArray[i] = inL[i];
 		}
+	} else if (pThis->v[kParamLeftInput] > 0){
+		float* inL = busFrames + ( pThis->v[kParamLeftInput] - 1 ) * numFrames;
+		for ( int i=0; i<numFrames; ++i ){
+		chRArray[i] = inL[i];
+		chLArray[i] = inL[i];
+		}
 	}
-
     if(pThis->v[kParamClockInput] > 0){
 		static const float threshold = 0.5f;
 		float* clockIn = busFrames + ( pThis->v[kParamClockInput] - 1) * numFrames; // Clock input is the 3rd input (index 2)
@@ -493,6 +501,9 @@ void parameterChanged( _NT_algorithm* self, int p )
 		patchCtrls.looperResampling = pThis->v[p] > 0.f ? 1.f : 0.f;  // Convert enum to binary
 		break;
 
+	case kParamlooperClear:
+		patchState.clearLooperFlag = pThis->v[p] > 0.f ? 1.f : 0.f;  // Convert enum to binary
+		break;
 
     case kParamresonatorVol:
 		patchCtrls.resonatorVol = MapExpo(pThis->v[p]/1000.f);
