@@ -1,7 +1,7 @@
 # Lofi Oscillator — README_LOFI_OSC
 
 ## Overview
-- What it is: A 9 detunable lo-fi oscillators plugin that supports Sine/Square/Triangle/Saw/Morph waveforms, per-oscillator detune models (instrument-like partials), V/Oct input, linear/TZ FM input, morph modulation and harmonics control.
+- What it is: A 9 detunable lo-fi oscillators plugin that supports Sine/Square/Triangle/Saw/Morph waveforms, per-oscillator detune models (instrument-like partials), V/Oct input, linear/TZ FM input, morph modulation and harmonics control. It doesn't try to prevent any aliasing, it's part of it's charm.
 
 ## Quick Start
 - Load: Insert the algorithm in your host (platform-specific).
