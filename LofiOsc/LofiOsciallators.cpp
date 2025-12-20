@@ -470,7 +470,7 @@ bool	draw( _NT_algorithm* self )
 
 static const _NT_factory factory = 
 {
-    .guid = NT_MULTICHAR( 'P', 'L', 'l', 'f' ),
+    .guid = NT_MULTICHAR( 'P', 'L', 'l', 'o' ),
     .name = "Lofi osciallators",
     .description = "9 detunable lo-fi oscillators with morphing and FM",
     .numSpecifications = 0,
