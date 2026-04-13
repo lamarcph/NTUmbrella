@@ -1,0 +1,13 @@
+# Build artifacts
+bin/
+plugins/*.o
+plugins/*.tmp.o
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~

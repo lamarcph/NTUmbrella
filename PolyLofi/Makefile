@@ -16,42 +16,21 @@ HEADERS_PATH := ../LofiParts
 TARGET_TOOLCHAIN := arm-none-eabi-c++
 TARGET_CPPFLAGS := -std=c++17 -mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -fno-rtti -fno-exceptions -Os -fPIC -Wall
 
-# Sources and Outputs for the embedded plugins
-EMBEDDED_SRCS := $(filter-out UnitTests.cpp, $(wildcard *cpp))
-EMBEDDED_OBJS := $(patsubst %.cpp,plugins/%.o,$(EMBEDDED_SRCS))
+# Sources and Outputs for the embedded plugin (single relocatable .o)
+EMBEDDED_SRCS := PolyLofi.cpp PolyLofiVoice.cpp
+EMBEDDED_OBJS := $(patsubst %.cpp,plugins/%.tmp.o,$(EMBEDDED_SRCS))
+PLUGIN_OBJ    := plugins/PolyLofi.o
 
-# Default target: builds the embedded object files
-all: $(EMBEDDED_OBJS)
+# Default target: builds the single combined plugin object
+all: $(PLUGIN_OBJ)
 
-plugins/%.o: %.cpp
+# Link individual objects into one relocatable .o
+$(PLUGIN_OBJ): $(EMBEDDED_OBJS)
+	arm-none-eabi-ld -r -o $@ $^
+
+plugins/%.tmp.o: %.cpp
 	@mkdir -p $(@D)
 	$(TARGET_TOOLCHAIN) $(TARGET_CPPFLAGS) -I$(INCLUDE_PATH) -I$(HEADERS_PATH) -c -o $@ $^
-
-# ==============================================================================
-# Standalone Unit Tests (oscillator core only, no NT API stub needed)
-# ==============================================================================
-
-CXX_WSL := g++
-WSL_BUILD_DIR := bin
-UNIT_TEST_SRC := UnitTests.cpp
-UNIT_TEST_EXE := $(WSL_BUILD_DIR)/UnitTests
-
-.PHONY: unit-test
-unit-test: $(UNIT_TEST_EXE)
-	@./$(UNIT_TEST_EXE)
-
-$(UNIT_TEST_EXE): $(UNIT_TEST_SRC)
-	@mkdir -p $(WSL_BUILD_DIR)
-	$(CXX_WSL) -std=c++17 -Wall -g -I$(INCLUDE_PATH) -I$(HEADERS_PATH) -o $@ $^
-
-# ==============================================================================
-# Integration Tests (shared test harness — tests full plugin lifecycle)
-# ==============================================================================
-
-PLUGIN_SRCS   := LofiOsciallators.cpp
-TEST_SRCS     := tests/test_integration.cpp
-EXTRA_INCLUDE := -I../LofiParts
-include ../test_harness/test_harness.mk
 
 # ==============================================================================
 # Utility Targets
@@ -59,6 +38,15 @@ include ../test_harness/test_harness.mk
 
 clean:
 	@echo "Cleaning embedded object files..."
-	rm -f $(EMBEDDED_OBJS)
+	rm -f $(EMBEDDED_OBJS) $(PLUGIN_OBJ)
 	@echo "Cleaning host test executable..."
-	rm -rf $(WSL_BUILD_DIR)
+	rm -rf $(TEST_BUILD_DIR)
+
+# ==============================================================================
+# Integration Tests (shared harness)
+# ==============================================================================
+
+PLUGIN_SRCS   := PolyLofi.cpp PolyLofiVoice.cpp
+TEST_SRCS     := tests/test_integration.cpp
+EXTRA_INCLUDE := -I../LofiParts
+include ../test_harness/test_harness.mk

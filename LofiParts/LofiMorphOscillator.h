@@ -2,7 +2,6 @@
 #define LOFI_PARTS_LOFI_MORPH_OSCILLATOR_H
 
 #include <cmath>     // For M_PI, sin, fabs (for LUT generation and FM calculations)
-#include <iostream>  // For basic output demonstration
 #include <array>     // For std::array (modern C++ alternative to raw C arrays)
 #include <cstdint>   // For fixed-size integer types (int16_t, uint32_t, uint64_t, int8_t)
 #include <algorithm> // For std::min, std::max
@@ -44,7 +43,7 @@ const uint32_t SINE_LUT_SHIFT = PHASE_FRAC_BITS - static_cast<uint32_t>(std::log
 static int16_t sine_lut[SINE_LUT_SIZE];
 
 // Function to initialize the sine LUT. Call this once at application startup.
-void initializeSineLUT() {
+static inline void initializeSineLUT() {
     for (uint32_t i = 0; i < SINE_LUT_SIZE; ++i) {
         // Calculate the angle for this LUT entry (0 to 2*PI)
         float angle = (static_cast<float>(i) / SINE_LUT_SIZE) * 2.0f * static_cast<float>(M_PI);
@@ -67,7 +66,11 @@ public:
         TRIANGLE,
         SQUARE,
         SAW,
-        MORPHED
+        MORPHED,
+        POLYBLEP_SAW,
+        POLYBLEP_SQUARE,
+        WAVETABLE,
+        NOISE
     };
 
     // Constructor initializes the oscillator
@@ -112,6 +115,13 @@ public:
         updateBasePhaseIncrement();
     }
 
+    // Set sample-rate decimation factor (1 = off, 2 = half rate, 4 = quarter, etc.)
+    // The oscillator advances phase by N steps at once, computes one sample,
+    // and holds it for the remaining N-1 output slots.
+    void setDecimation(uint32_t factor) {
+        _decimation = (factor < 1) ? 1 : factor;
+    }
+
      // Getter for testing the current internal phase
     uint32_t getPhase() const {
         return _phase;
@@ -132,6 +142,16 @@ public:
         _userShapeMorph = static_cast<uint16_t>(morphValue * Q15_MAX_VAL);
         _shapeMorph = _userShapeMorph;
         _currentBlockMorphValues.fill(_userShapeMorph);
+    }
+
+    // Set wavetable data pointer (must point to flat full-size table, mipmaps skipped by caller)
+    void setWavetable(const int16_t* data, uint32_t numWaves, uint32_t waveLength) {
+        _wavetableData = data;
+        _wtNumWaves = numWaves;
+        _wtWaveLength = waveLength;
+        _wtWavePosScale = (numWaves > 1)
+            ? static_cast<float>(numWaves - 1) / static_cast<float>(Q15_MAX_VAL)
+            : 0.0f;
     }
 
     // Set the frequency modulation depth (e.g., in Hz deviation for a 1.0 FM input)
@@ -201,10 +221,10 @@ public:
                                    defaultBaseFreqQ16;
 
             // 2. Calculate FM offset in Q16.16
+            // When fmInput is nullptr (fast path, no FM routing), offset is zero.
             // Calculation: (fmInput[i] (Q1.15) * fmDepthQ16 (Q16.16)) >> 15
             // The multiplication results in Q17.31. Shifting >> 15 yields Q17.16 (sufficient for addition).
-           // int32_t fmOffsetQ16 = (static_cast<int32_t>(fmInput[i]) * fmDepthQ16) >> 15;
-           int32_t fmOffsetQ16 =  static_cast<int32_t>((static_cast<int64_t>(fmInput[i]) * _fmDepthQ16) >> 15);
+           int32_t fmOffsetQ16 = fmInput ? static_cast<int32_t>((static_cast<int64_t>(fmInput[i]) * _fmDepthQ16) >> 15) : 0;
 
             // 3. Instantaneous frequency in Q16.16: V/Oct Freq + FM Offset
             int32_t instFreqQ16 = static_cast<int32_t>(vOctFreqQ16) + fmOffsetQ16;
@@ -271,6 +291,14 @@ public:
         return static_cast<int16_t>(val - Q15_MAX_VAL);
     }
 
+    // Noise: xorshift32 PRNG — phase-independent, full Q15 range
+    int16_t getNoiseWave() {
+        _noiseState ^= _noiseState << 13;
+        _noiseState ^= _noiseState >> 17;
+        _noiseState ^= _noiseState << 5;
+        return static_cast<int16_t>(_noiseState >> 16);
+    }
+
     // Get the current sample for a Triangle wave (output in Q1.15 fixed-point)
     // A triangle wave goes from -1 to 1, peaking at the midpoint.
     int16_t getTriangleWave() {
@@ -292,10 +320,19 @@ public:
     }
 
     // Get the current sample for a Square wave (output in Q1.15 fixed-point)
-    // A square wave is either -1 (Q15_MIN_VAL) or 1 (Q15_MAX_VAL).
+    // Uses pulse width (duty cycle): 0.0 = very narrow, 0.5 = 50%, 1.0 = very wide
     int16_t getSquareWave() {
-        // If phase is less than half the cycle, output Q15_MAX_VAL, otherwise Q15_MIN_VAL.
-        return (_phase < (PHASE_SCALE / 2)) ? Q15_MAX_VAL : Q15_MIN_VAL;
+        return (_phase < _pulseWidthThreshold) ? Q15_MAX_VAL : Q15_MIN_VAL;
+    }
+
+    // Set pulse width (duty cycle) for the square wave: 0.05 to 0.95
+    void setPulseWidth(float pw) {
+        pw = std::clamp(pw, 0.05f, 0.95f);
+        _pulseWidthThreshold = static_cast<uint32_t>(static_cast<float>(PHASE_SCALE) * pw);
+    }
+
+    float getPulseWidth() const {
+        return static_cast<float>(_pulseWidthThreshold) / static_cast<float>(PHASE_SCALE);
     }
 
     // Get the current sample for a Sine wave (output in Q1.15 fixed-point)
@@ -311,9 +348,9 @@ public:
     // Get the current sample with smooth morphing between Sine, Triangle, Square, Saw
     // The morphing order is Sine -> Triangle -> Square -> Saw
     int16_t getMorphedWave() {
-        // Define segment width for morphing (Q15_MAX_VAL / 3)
-        // Using integer division, this will be 10922 for Q15_MAX_VAL = 32767
-        const uint16_t SEGMENT_WIDTH = Q15_MAX_VAL / 3;
+        // Define segment width for morphing (Q15_MAX_VAL / 4)
+        // 4 segments: Sine → Triangle → Square → Saw → Noise
+        const uint16_t SEGMENT_WIDTH = Q15_MAX_VAL / 4;
 
         int16_t wave_a, wave_b;
         uint16_t local_morph_param; // Fixed-point parameter within the current segment (0 to SEGMENT_WIDTH)
@@ -326,10 +363,14 @@ public:
             wave_a = getTriangleWave();
             wave_b = getSquareWave();
             local_morph_param = _shapeMorph - SEGMENT_WIDTH;
-        } else { // Segment 3: Square to Saw (or beyond, clamped to max)
+        } else if (_shapeMorph < (3 * SEGMENT_WIDTH)) { // Segment 3: Square to Saw
             wave_a = getSquareWave();
             wave_b = getSawWave();
             local_morph_param = _shapeMorph - (2 * SEGMENT_WIDTH);
+        } else { // Segment 4: Saw to Noise
+            wave_a = getSawWave();
+            wave_b = getNoiseWave();
+            local_morph_param = _shapeMorph - (3 * SEGMENT_WIDTH);
         }
 
         // Calculate alpha for interpolation (0 to Q15_MAX_VAL)
@@ -381,6 +422,12 @@ public:
             case MORPHED:
                 output_sample = getMorphedWave();
                 break;
+            case WAVETABLE:
+                output_sample = getWavetableSample();
+                break;
+            case NOISE:
+                output_sample = getNoiseWave();
+                break;
             default:
                 output_sample = 0; // Default to silence
         }
@@ -393,17 +440,18 @@ public:
 
     // Generate a block of Saw wave samples
     void getSawWaveBlock(int16_t* outputBuffer, uint32_t numSamples) {
-        // Clamp numSamples to MAX_BLOCK_SIZE to prevent buffer overflow
         numSamples = std::min(numSamples, MAX_BLOCK_SIZE);
-
-        // Basic check if prepareFmBlock was called for current block size
-        // Note: For static arrays, we can't check size like std::vector. Assume it's filled.
-        // In a real application, you might have a flag or enforce call order.
-        
         for (uint32_t i = 0; i < numSamples; ++i) {
-            _phase += _currentBlockPhaseIncrements[i]; // Use pre-calculated FM-adjusted absolute increment
-            _phase &= (PHASE_SCALE - 1); // Wrap phase (0 to PHASE_SCALE - 1)
-            outputBuffer[i] = getSawWave();
+            _phase += _currentBlockPhaseIncrements[i];
+            _phase &= (PHASE_SCALE - 1);
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                _decimationHeld = getSawWave();
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
         }
     }
 
@@ -413,7 +461,14 @@ public:
         for (uint32_t i = 0; i < numSamples; ++i) {
             _phase += _currentBlockPhaseIncrements[i];
             _phase &= (PHASE_SCALE - 1);
-            outputBuffer[i] = getTriangleWave();
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                _decimationHeld = getTriangleWave();
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
         }
     }
 
@@ -423,7 +478,14 @@ public:
         for (uint32_t i = 0; i < numSamples; ++i) {
             _phase += _currentBlockPhaseIncrements[i];
             _phase &= (PHASE_SCALE - 1);
-            outputBuffer[i] = getSquareWave();
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                _decimationHeld = getSquareWave();
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
         }
     }
 
@@ -433,7 +495,14 @@ public:
         for (uint32_t i = 0; i < numSamples; ++i) {
             _phase += _currentBlockPhaseIncrements[i];
             _phase &= (PHASE_SCALE - 1);
-            outputBuffer[i] = getSineWave();
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                _decimationHeld = getSineWave();
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
         }
     }
 
@@ -441,18 +510,201 @@ public:
     void getMorphedWaveBlock(int16_t* outputBuffer, uint32_t numSamples) {
         numSamples = std::min(numSamples, MAX_BLOCK_SIZE);
         for (uint32_t i = 0; i < numSamples; ++i) {
-            // Apply per-sample morph value from the prepared buffer
             _shapeMorph = _currentBlockMorphValues[i];
-            // Apply per-sample frequency modulation
             _phase += _currentBlockPhaseIncrements[i];
             _phase &= (PHASE_SCALE - 1);
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                _decimationHeld = getMorphedWave();
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
+        }
+    }
 
-            // Get the morphed sample and apply FM sign
-            outputBuffer[i] = getMorphedWave();
+    // Generate a block of Wavetable samples (morph selects wave position)
+    void getWavetableWaveBlock(int16_t* outputBuffer, uint32_t numSamples) {
+        numSamples = std::min(numSamples, MAX_BLOCK_SIZE);
+        for (uint32_t i = 0; i < numSamples; ++i) {
+            _shapeMorph = _currentBlockMorphValues[i];
+            _phase += _currentBlockPhaseIncrements[i];
+            _phase &= (PHASE_SCALE - 1);
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                _decimationHeld = getWavetableSample();
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
+        }
+    }
+
+    // Generate a block of Noise samples (phase advances for sync, PRNG for waveform)
+    void getNoiseWaveBlock(int16_t* outputBuffer, uint32_t numSamples) {
+        numSamples = std::min(numSamples, MAX_BLOCK_SIZE);
+        for (uint32_t i = 0; i < numSamples; ++i) {
+            _phase += _currentBlockPhaseIncrements[i];
+            _phase &= (PHASE_SCALE - 1);
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                _decimationHeld = getNoiseWave();
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
+        }
+    }
+
+    // --- PolyBLEP antialiasing ---
+    // Standard 2nd-order PolyBLEP: corrects BOTH the sample just after AND the
+    // sample just before a discontinuity.  t = normalised phase [0,1),
+    // dt = normalised phase-increment per sample.
+    static inline float polyblep(float t, float dt) {
+        if (t < dt) {
+            // Just past the discontinuity
+            float tn = t / dt;
+            return tn + tn - tn * tn - 1.0f;
+        } else if (t > 1.0f - dt) {
+            // One sample before the next discontinuity
+            float tn = (t - 1.0f) / dt;
+            return tn * tn + tn + tn + 1.0f;
+        }
+        return 0.0f;
+    }
+
+    // Generate a block of PolyBLEP-antialiased saw wave samples
+    void getPolyBlepSawWaveBlock(int16_t* outputBuffer, uint32_t numSamples) {
+        numSamples = std::min(numSamples, MAX_BLOCK_SIZE);
+        const float invScale = 1.0f / static_cast<float>(PHASE_SCALE);
+        for (uint32_t i = 0; i < numSamples; ++i) {
+            uint32_t inc = _currentBlockPhaseIncrements[i];
+            _phase += inc;
+            _phase &= (PHASE_SCALE - 1);
+
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                float p  = static_cast<float>(_phase) * invScale;
+                float dp = static_cast<float>(inc)    * invScale;
+                float naiveSaw = 2.0f * p - 1.0f;
+                naiveSaw -= polyblep(p, dp);
+                int32_t val = static_cast<int32_t>(naiveSaw * Q15_MAX_VAL);
+                _decimationHeld = static_cast<int16_t>(std::clamp(val, (int32_t)Q15_MIN_VAL, (int32_t)Q15_MAX_VAL));
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
+        }
+    }
+
+    // Generate a block of PolyBLEP-antialiased square wave samples (with pulse width)
+    void getPolyBlepSquareWaveBlock(int16_t* outputBuffer, uint32_t numSamples) {
+        numSamples = std::min(numSamples, MAX_BLOCK_SIZE);
+        const float invScale = 1.0f / static_cast<float>(PHASE_SCALE);
+        for (uint32_t i = 0; i < numSamples; ++i) {
+            uint32_t inc = _currentBlockPhaseIncrements[i];
+            _phase += inc;
+            _phase &= (PHASE_SCALE - 1);
+
+            if (_decimation <= 1 || _decimationCounter == 0) {
+                float p  = static_cast<float>(_phase) * invScale;
+                float dp = static_cast<float>(inc)    * invScale;
+                float pw = static_cast<float>(_pulseWidthThreshold) * invScale;
+                float naiveSquare = (p < pw) ? 1.0f : -1.0f;
+                naiveSquare += polyblep(p, dp);
+                float pShifted = p - pw;
+                if (pShifted < 0.0f) pShifted += 1.0f;
+                naiveSquare -= polyblep(pShifted, dp);
+                int32_t val = static_cast<int32_t>(naiveSquare * Q15_MAX_VAL);
+                _decimationHeld = static_cast<int16_t>(std::clamp(val, (int32_t)Q15_MIN_VAL, (int32_t)Q15_MAX_VAL));
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
         }
     }
 
     void hardSync(){_phase = 0;}
+
+    // Unified block render with optional sync input/output
+    void getWaveBlockWithSync(int16_t* outputBuffer, bool* syncOutput, const bool* syncInput,
+                              WaveformType type, uint32_t numSamples) {
+        numSamples = std::min(numSamples, MAX_BLOCK_SIZE);
+        for (uint32_t i = 0; i < numSamples; ++i) {
+            // Sync input: reset phase if master triggered
+            if (syncInput && syncInput[i]) {
+                _phase = 0;
+            }
+            // Apply per-sample morph value
+            if (type == MORPHED || type == WAVETABLE) {
+                _shapeMorph = _currentBlockMorphValues[i];
+            }
+            // Advance phase and detect wrap for sync output
+            _phase += _currentBlockPhaseIncrements[i];
+            if (syncOutput) {
+                syncOutput[i] = (_phase >= PHASE_SCALE); // completed a full cycle
+            }
+            _phase &= (PHASE_SCALE - 1);
+
+            // Decimation: only compute a new sample on the trigger beat
+            bool computeSample = (_decimation <= 1 || _decimationCounter == 0);
+
+            // Generate sample (or hold previous)
+            if (computeSample) {
+              switch (type) {
+                case SINE:     _decimationHeld = getSineWave(); break;
+                case SQUARE:   _decimationHeld = getSquareWave(); break;
+                case TRIANGLE: _decimationHeld = getTriangleWave(); break;
+                case SAW:      _decimationHeld = getSawWave(); break;
+                case MORPHED:  _decimationHeld = getMorphedWave(); break;
+                case POLYBLEP_SAW: {
+                    uint32_t inc = _currentBlockPhaseIncrements[i];
+                    float invS = 1.0f / static_cast<float>(PHASE_SCALE);
+                    float p  = static_cast<float>(_phase) * invS;
+                    float dp = static_cast<float>(inc)    * invS;
+                    float naiveSaw = 2.0f * p - 1.0f;
+                    naiveSaw -= polyblep(p, dp);
+                    int32_t v = static_cast<int32_t>(naiveSaw * Q15_MAX_VAL);
+                    _decimationHeld = static_cast<int16_t>(std::clamp(v, (int32_t)Q15_MIN_VAL, (int32_t)Q15_MAX_VAL));
+                    break;
+                }
+                case POLYBLEP_SQUARE: {
+                    uint32_t inc = _currentBlockPhaseIncrements[i];
+                    float invS = 1.0f / static_cast<float>(PHASE_SCALE);
+                    float p  = static_cast<float>(_phase) * invS;
+                    float dp = static_cast<float>(inc)    * invS;
+                    float pw = static_cast<float>(_pulseWidthThreshold) * invS;
+                    float naiveSq = (p < pw) ? 1.0f : -1.0f;
+                    naiveSq += polyblep(p, dp);
+                    float pShifted = p - pw;
+                    if (pShifted < 0.0f) pShifted += 1.0f;
+                    naiveSq -= polyblep(pShifted, dp);
+                    int32_t v = static_cast<int32_t>(naiveSq * Q15_MAX_VAL);
+                    _decimationHeld = static_cast<int16_t>(std::clamp(v, (int32_t)Q15_MIN_VAL, (int32_t)Q15_MAX_VAL));
+                    break;
+                }
+                case WAVETABLE:
+                    _decimationHeld = getWavetableSample();
+                    break;
+                case NOISE:
+                    _decimationHeld = getNoiseWave();
+                    break;
+                default:       _decimationHeld = getSawWave(); break;
+              }
+            }
+            outputBuffer[i] = _decimationHeld;
+            if (_decimation > 1) {
+                _decimationCounter++;
+                if (_decimationCounter >= _decimation) _decimationCounter = 0;
+            }
+        }
+    }
 
     uint16_t getUserShapeMorph() const { return _userShapeMorph; }
 
@@ -473,7 +725,7 @@ public:
         _morphModDepth(1.0f),   // Default morph modulation depth (1.0 means full range)
         _userShapeMorph(0)
 */
-private:
+protected:
     float _frequency;      // Base oscillator frequency in Hz (float for input convenience)
     float _sampleRate;     // Audio sample rate in Hz (float for input convenience)
     uint32_t _phase;        // Current phase accumulator (fixed-point, always 0 to PHASE_SCALE - 1)
@@ -484,12 +736,19 @@ private:
     uint32_t _phaseScaleDivSampleRateQ16;
     float _morphModDepth;   // Depth of morph modulation (0.0 to 1.0)
     uint16_t _userShapeMorph;
-    
-    
-    
-    
-    
+    uint32_t _pulseWidthThreshold = PHASE_SCALE / 2;  // Precalculated phase threshold for square wave duty cycle
+
+    // Wavetable: pointer to flat int16_t array (full-size table, mipmaps already skipped)
+    const int16_t* _wavetableData = nullptr;
+    uint32_t _wtNumWaves = 0;
+    uint32_t _wtWaveLength = 0;
+    float _wtWavePosScale = 0.0f;  // precomputed: (numWaves-1) / Q15_MAX_VAL
+
     bool _useVOctBuffer = false;
+    uint32_t _decimation = 1;       // Sample-rate decimation factor (1 = off)
+    uint32_t _decimationCounter = 0; // Counts samples until next compute
+    int16_t _decimationHeld = 0;     // Last computed sample (held during skip)
+    uint32_t _noiseState = 0x12345678; // xorshift32 PRNG state for noise waveform
     float* debugvalueptr = nullptr; 
     float* debugvalue2ptr = nullptr; 
     float* debugvalue3ptr = nullptr; 
@@ -503,6 +762,33 @@ private:
     std::array<uint32_t, MAX_BLOCK_SIZE> _currentBlockBaseFrequenciesQ16;
     std::array<uint32_t, MAX_BLOCK_SIZE> _currentBlockVOctFrequenciesQ16;
 
+private:
+
+    // Lo-fi wavetable sample lookup: nearest-neighbor within wave, linear crossfade between waves.
+    // No anti-aliasing (no mipmaps) — intentional for classic PPG/Microwave XT character.
+    int16_t getWavetableSample() {
+        if (!_wavetableData || _wtNumWaves == 0 || _wtWaveLength == 0) return 0;
+
+        // Wave position from morph parameter (0 .. numWaves-1)
+        float wavePos = static_cast<float>(_shapeMorph) * _wtWavePosScale;
+        int waveIdx = static_cast<int>(wavePos);
+        if (waveIdx < 0) waveIdx = 0;
+        if (waveIdx >= static_cast<int>(_wtNumWaves) - 1) waveIdx = static_cast<int>(_wtNumWaves) - 2;
+        float waveFrac = wavePos - static_cast<float>(waveIdx);
+
+        // Sample position from phase: nearest-neighbor (no interpolation = maximum lo-fi)
+        uint32_t sampleIdx = static_cast<uint32_t>(
+            (static_cast<uint64_t>(_phase) * _wtWaveLength) >> 27
+        );
+        if (sampleIdx >= _wtWaveLength) sampleIdx = _wtWaveLength - 1;
+
+        // Linear crossfade between adjacent waves
+        int32_t s0 = _wavetableData[waveIdx * _wtWaveLength + sampleIdx];
+        int32_t s1 = _wavetableData[(waveIdx + 1) * _wtWaveLength + sampleIdx];
+        int32_t result = s0 + static_cast<int32_t>(static_cast<float>(s1 - s0) * waveFrac);
+        return static_cast<int16_t>(std::clamp(result, static_cast<int32_t>(Q15_MIN_VAL), static_cast<int32_t>(Q15_MAX_VAL)));
+    }
+
     void updateBasePhaseIncrement() {
         _basePhaseIncrement = static_cast<uint32_t>((_frequency * PHASE_SCALE) / _sampleRate);
         //std::cout << "Base Phase Increment updated to: " << _basePhaseIncrement << std::endl;
@@ -515,4 +801,5 @@ private:
         //std::cout << "Base Phase Increment updated to: " << _basePhaseIncrement << ", frequency: " << _frequency << " Hz" << std::endl;
     }
 };
+
 #endif // LOFI_PARTS_LOFI_MORPH_OSCILLATOR_H

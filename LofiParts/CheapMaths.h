@@ -5,19 +5,19 @@
 
 static uint16_t xorshift_state = 12345; // Seed with a non-zero value
 
-void seed_xorshift(uint16_t seed) {
+static inline void seed_xorshift(uint16_t seed) {
     if (seed == 0) seed = 1; // Ensure seed is not zero
     xorshift_state = seed;
 }
 
-uint16_t xorshift16() {
+static inline uint16_t xorshift16() {
     xorshift_state ^= (xorshift_state << 7);
     xorshift_state ^= (xorshift_state >> 9);
     xorshift_state ^= (xorshift_state << 8);
     return xorshift_state;
 }
 
-uint16_t get_triangular_dist(uint16_t max_val = UINT16_MAX) {
+static inline uint16_t get_triangular_dist(uint16_t max_val = UINT16_MAX) {
     uint32_t r1 = xorshift16();
     uint32_t r2 = xorshift16();
 
@@ -210,6 +210,33 @@ static inline float fast_logf(float x) {
 static inline float fast_log10f(float x) {
     // log10(x) = log2(x) * log10(2)
     return fast_log2f(x) * FM_LOG10_2;
+}
+
+
+static inline float fast_tanhf(float x) {
+    // 1. Handle large inputs to prevent exp() overflow and save cycles
+    // tanh(x) is indistinguishable from 1.0 (in float32) at x > 9.0
+    if (x > 9.0f) return 1.0f;
+    if (x < -9.0f) return -1.0f;
+
+    // 2. Optimization: tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)
+    // We use your existing fast_expf
+    float e2x = fast_expf(2.0f * x);
+    
+    return (e2x - 1.0f) / (e2x + 1.0f);
+}
+
+// The "Poor Man's Tanh"
+// Extremely fast, no memory access, very "screehy" in filters.
+static inline float cheap_saturate(float x) {
+    // Range: -3 to 3 (beyond which it hard clips at +/- 1.0)
+    if (x <= -3.0f) return -1.0f;
+    if (x >= 3.0f) return 1.0f;
+    
+    // Cubic approximation of the tanh curve
+    // f(x) = x * (27 + x^2) / (27 + 9 * x^2)
+    float x2 = x * x;
+    return x * (27.0f + x2) / (27.0f + 9.0f * x2);
 }
 
 #endif // LOFI_PARTS_CHEAP_MATHS_H

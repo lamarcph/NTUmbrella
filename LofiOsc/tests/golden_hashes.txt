@@ -1,0 +1,44 @@
+# LofiOsc Golden WAV Hashes (SHA-256)
+# Format: <sha256>  <filepath>   (two-space separator, sha256sum compatible)
+# Replace a hash with * to regenerate it on next test run.
+
+# Default config
+1770813f014f1d9cc1915ccfd981a125d8a06d5b3165ba0a08f1f2cfeeae3b8a  bin/golden_default.wav
+
+# Waveforms
+1770813f014f1d9cc1915ccfd981a125d8a06d5b3165ba0a08f1f2cfeeae3b8a  bin/golden_wave_sine.wav
+6f27d76654c11545f0b100b27200601ac0d6fdf2943072628235a2331c67314c  bin/golden_wave_square.wav
+7b65b14c079d010f699d7a6390751c783d5c21f1b584f1727060f988f15a6457  bin/golden_wave_triangle.wav
+b1c133e54a3e37bf1e0f9b37b38281e2df45750b41c1fc73303007fdcdacc30a  bin/golden_wave_saw.wav
+088cc5eff4b2f7f95d95d9e76564888e5cb8191348c115cca3f719ac229e9160  bin/golden_wave_morph.wav
+
+# Detune models
+ae6a41aacdf34665db7028a931adc5e123b4b3354f8ea625e360b6e8a54d8681  bin/golden_detune_random.wav
+e9246ecff7605ddad16715b3b008703bf6659f578f143c80d57526e5e069aa76  bin/golden_detune_tr808.wav
+cced341cedddb5636dcfe1b27f29683bfbe832e74b83a56ddf03f3c9d1ba306f  bin/golden_detune_hammond.wav
+44f6dea13ffb95601ebb955a65fae608b20228da047346d05483f2950ec961bb  bin/golden_detune_piano.wav
+b4328b9cae8d0b907b9248241bcaa01956c51fe3493b2feb4a443ebe12bd2975  bin/golden_detune_bell.wav
+95d5bde69a6f1f59d9135e01e34e053217e96f6c48069ed5ba8e19a18cf76012  bin/golden_detune_marimba.wav
+b6c765e40aa2e72b95b887f177815bbbc96075b7ce780af1821a13b0b712602a  bin/golden_detune_bassdrum.wav
+f46e6f30a6be90fa839db9d49c59703c854990bbe415b922915daee8292eeb6f  bin/golden_detune_harmonics.wav
+
+# Morph sweep
+74a0a48f5dc3b87723dac99e4bc249cfdb3c61742d9f9c51274382067c787c98  bin/golden_morph_sweep.wav
+
+# Harmonics modulation
+ee822b53fff7e467d5f04d2b4f595056c501b0f4396c7b93910d128982215a30  bin/golden_harmonics.wav
+
+# Pitch range
+da1d547d31a35bb19f4dec5b61d4b8253dcbe491905ddacd08f0fb72ea7a6574  bin/golden_pitch_low.wav
+b1c133e54a3e37bf1e0f9b37b38281e2df45750b41c1fc73303007fdcdacc30a  bin/golden_pitch_mid.wav
+71a3ef24a4f9284ca3a0ef4565d1f079f184f4fdf4e4c09823af6a93669c3aaa  bin/golden_pitch_high.wav
+
+# CV modulation (sample-rate inputs)
+7f7583442162e6732caf3706ca4bab74b4ee1c260bee385fdaf5deea3f0af647  bin/golden_cv_fm.wav
+d991bac318892aded3da08f37b4f3549440ee9e69d30789400a949c65e0da57f  bin/golden_cv_voct.wav
+46f000812a9486eb5f7df75f46bb26d857cee67599c1bef278dac13401eedf15  bin/golden_cv_morph.wav
+5f915365d6b5860fc094fe107c6639152103b5085ffeb958ac52ba727dbd9d31  bin/golden_cv_harmonics.wav
+9d7dde652a859e593a6f942735c4abb9b17a8e9aa84f7620ed13d886451d95cd  bin/golden_cv_all.wav
+
+# Main capture
+db081d27722d51d425b742254c9e02cbf5d94ebb27f07fad2be2830e8452791b  bin/lofi_osc_output.wav

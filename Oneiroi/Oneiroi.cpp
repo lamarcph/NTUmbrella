@@ -4,24 +4,7 @@
 #include <Oneiroi/Oneiroi.h>
 #include <Oneiroi/SampleBuffer.hpp>
 
-struct _OneiroiAlgorithm_DTC
-{
-    PatchCtrls patchCtrls;
-    PatchCvs patchCvs;
-    PatchState patchState;
-	Oneiroi* Oneiroi_;
-	AudioBuffer* buffer;
-	float semi= 0.f, fine=0.f, v8c = 0.f, prevClockValue = 0.f, pitchInput=0.f;
-	uint8_t dtcMemory[_allocatableDTCMemorySize];
-};
 
-struct _OneiroiAlgorithm : public _NT_algorithm
-{
-	_OneiroiAlgorithm( _OneiroiAlgorithm_DTC* dtc_ ) : dtc( dtc_ ) {}
-	~_OneiroiAlgorithm() {}
-	
-	_OneiroiAlgorithm_DTC*	dtc;
-};
 
 enum
 {
@@ -87,8 +70,42 @@ enum
     kParammodType,
     kParammodSpeed,
     kParammodLevel,
-    kParammodShape,
-};  
+	kParamActionRandomize,
+    kParamActionUndo,
+    kParamActionRedo,
+};
+
+// Define the range of parameters to randomize/undo (skipping Inputs/Outputs/Actions)
+#define PARAM_RND_START kParamOscSemi 
+#define PARAM_RND_END   kParammodLevel
+#define NUM_UNDOABLE_PARAMS (PARAM_RND_END - PARAM_RND_START + 1)
+#define UNDO_STACK_SIZE 8
+
+struct _OneiroiAlgorithm_DTC
+{
+    PatchCtrls patchCtrls;
+    PatchCvs patchCvs;
+    PatchState patchState;
+	Oneiroi* Oneiroi_;
+	AudioBuffer* buffer;
+	float semi= 0.f, fine=0.f, v8c = 0.f, prevClockValue = 0.f, pitchInput=0.f;
+	uint8_t dtcMemory[_allocatableDTCMemorySize];
+	int16_t undoStack[UNDO_STACK_SIZE][NUM_UNDOABLE_PARAMS];
+    int     undoHead = 0;       // Index where the NEXT state will be written
+    int     undoSize = 0;       // Number of valid undo states available
+    int     undoCurrentIndex = 0; // The index of the currently loaded stat
+};
+
+struct _OneiroiAlgorithm : public _NT_algorithm
+{
+	_OneiroiAlgorithm( _OneiroiAlgorithm_DTC* dtc_ ) : dtc( dtc_ ) {}
+	~_OneiroiAlgorithm() {}
+	
+	_OneiroiAlgorithm_DTC*	dtc;
+};
+
+// Enum strings for the trigger buttons
+static char const * const enumStringsTrigger[] = { "Idle", "Trigger" };
 
 static char const * const enumStringsFiltermode[] = {
 	 "Low-pass", "Band-pass", "High-pass", "Comb filter"
@@ -169,8 +186,11 @@ static const _NT_parameter	parameters[] = {
     // Modulation
     { .name = "Mod Type", .min = 0, .max = 800, .def = 0, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Mod Speed", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
-    { .name = "Mod Level", .min = 0, .max = 1000, .def = 250, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL }
+    { .name = "Mod Level", .min = 0, .max = 1000, .def = 250, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
 
+	{ .name = "Randomize", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
+    { .name = "Undo",      .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
+    { .name = "Redo",      .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
 };  
 
 
@@ -181,7 +201,8 @@ static const uint8_t page4[] = { kParamresonatorVol, kParamresonatorTune, kParam
 static const uint8_t page5[] = { kParamechoVol, kParamechoDensity, kParamechoRepeats, kParamechoFilter };
 static const uint8_t page6[] = { kParamambienceVol, kParamambienceDecay, kParamambienceSpacetime, kParamambienceAutoPan };
 static const uint8_t page7[] = { kParammodType, kParammodSpeed, kParammodLevel};
-static const uint8_t page8[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamClockInput, kParamPitchInput, kParamInputLevel, kParamOutputLevel };
+static const uint8_t page8[] = { kParamActionRandomize, kParamActionUndo, kParamActionRedo};
+static const uint8_t page9[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamClockInput, kParamPitchInput, kParamInputLevel, kParamOutputLevel };
 
 
 
@@ -193,7 +214,8 @@ static const _NT_parameterPage pages[] = {
 	{ .name = "Echo", .numParams = ARRAY_SIZE(page5), .params = page5 },
 	{ .name = "Ambience", .numParams = ARRAY_SIZE(page6), .params = page6 },
     { .name = "Modulation", .numParams = ARRAY_SIZE(page7), .params = page7 },
-	{ .name = "Routing", .numParams = ARRAY_SIZE(page8), .params = page8 },
+	{ .name = "Actions", .numParams = ARRAY_SIZE(page8), .params = page8 },
+	{ .name = "Routing", .numParams = ARRAY_SIZE(page9), .params = page9 },
 };
 
 static const _NT_parameterPages parameterPages = {
@@ -201,7 +223,82 @@ static const _NT_parameterPages parameterPages = {
 	.pages = pages,
 };
 
-void	calculateRequirements( _NT_algorithmRequirements& req, const int32_t* specifications )
+
+// Helper: Get random value based on parameter definition
+int16_t getRandomValue(const _NT_parameter& p) {
+    if (p.unit == kNT_unitEnum) {
+        // For enums, pick a random index
+        return p.min + (rand() % (p.max - p.min + 1));
+    }
+    // For others, pick a random value in range
+    // You might want to constrain this to avoid extreme values
+    return p.min + (rand() % (p.max - p.min + 1));
+}
+
+// Helper: Save current state to the undo stack
+void saveCurrentState( _OneiroiAlgorithm* self ) {
+    _OneiroiAlgorithm_DTC* dtc = self->dtc;
+    
+    // If we are in the middle of the stack (Undo was used), invalidate the "future" (Redo)
+    if (dtc->undoCurrentIndex != dtc->undoHead) {
+        dtc->undoHead = dtc->undoCurrentIndex;
+        dtc->undoSize = dtc->undoCurrentIndex; // Simplified stack logic
+    }
+
+    // Save current values
+    int writeIdx = dtc->undoHead;
+    for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i) {
+        int paramIdx = PARAM_RND_START + i;
+        dtc->undoStack[writeIdx][i] = self->v[paramIdx];
+    }
+
+    // Advance head
+    dtc->undoHead = (dtc->undoHead + 1) % UNDO_STACK_SIZE;
+    // Update current index to point to the new empty slot (or the one we just wrote, depending on logic)
+    // Here: undoCurrentIndex points to the state we are *currently looking at*. 
+    // Actually, it's easier if undoHead points to the *next empty* slot.
+    // Let's say undoCurrentIndex is the index of the *last saved state*.
+    
+    dtc->undoCurrentIndex = writeIdx;
+    
+    if (dtc->undoSize < UNDO_STACK_SIZE) dtc->undoSize++;
+}
+
+// Helper: Load state from stack and update UI
+void applyState( _OneiroiAlgorithm* self, int stackIndex ) {
+    _OneiroiAlgorithm_DTC* dtc = self->dtc;
+    int32_t algoIndex = NT_algorithmIndex(self);
+
+    for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i) {
+        int paramIdx = PARAM_RND_START + i;
+        int16_t storedVal = dtc->undoStack[stackIndex][i];
+        
+        // Only update if changed to minimize message traffic
+        if (self->v[paramIdx] != storedVal) {
+             NT_setParameterFromUi( algoIndex, paramIdx + NT_parameterOffset(), storedVal );
+        }
+    }
+    dtc->undoCurrentIndex = stackIndex;
+}
+
+void performRandomize( _OneiroiAlgorithm* self ) {
+    // 1. Save current state first
+    //saveCurrentState(self);
+
+    // 2. Randomize
+    int32_t algoIndex = NT_algorithmIndex(self);
+    for (int p = PARAM_RND_START; p <= PARAM_RND_END; ++p) {
+        // Skip if you want to protect certain params (like Vol/Pitch)
+        // if (p == kParamOscSemi) continue; 
+        
+        const _NT_parameter& paramDef = self->parameters[p];
+        int16_t newVal = getRandomValue(paramDef);
+        NT_setParameterFromUi( algoIndex, p + NT_parameterOffset(), newVal );
+    }
+}
+
+
+void calculateRequirements( _NT_algorithmRequirements& req, const int32_t* specifications )
 {
 	req.numParameters = ARRAY_SIZE(parameters);
 	req.sram = sizeof(_OneiroiAlgorithm);
@@ -298,6 +395,11 @@ _NT_algorithm*	construct( const _NT_algorithmMemoryPtrs& ptrs, const _NT_algorit
     
     alg->dtc->patchState.speedZero = 0.f;
 	alg->dtc->patchState.clockSource = ClockSource::CLOCK_SOURCE_INTERNAL;
+
+	// Initialize undo stack variables
+	alg->dtc->undoHead = 0;
+    alg->dtc->undoSize = 0;
+    alg->dtc->undoCurrentIndex = -1; // Indicates no history yet
     
 	return alg;
 }
@@ -376,10 +478,75 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
 		}
 	}
 }
-
+// do this in custom ui
 void parameterChanged( _NT_algorithm* self, int p )
 {
 	_OneiroiAlgorithm* pThis = (_OneiroiAlgorithm*)self;
+	
+	
+	int32_t algoIndex = NT_algorithmIndex(self);
+    _OneiroiAlgorithm_DTC* dtc = pThis->dtc;
+
+    // --- Custom Action Handling ---
+    if (p == kParamActionRandomize) {
+        if (pThis->v[p] > 0) { // Triggered (Value 1)
+            // If stack is empty, save the *initial* state of the module first
+            if (dtc->undoCurrentIndex == -1) {
+                // Initialize head/current to 0 and save
+                dtc->undoHead = 0;
+                dtc->undoCurrentIndex = 0;
+                // Manually save current v to slot 0
+                for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i) {
+                     dtc->undoStack[0][i] = pThis->v[PARAM_RND_START + i];
+                }
+                dtc->undoHead = 1;
+                dtc->undoSize = 1;
+            }
+
+            performRandomize(pThis);
+
+            // Reset button to 0 (Idle)
+            NT_setParameterFromUi( algoIndex,p + NT_parameterOffset(), 0 );
+        }
+        return;
+    }
+    else if (p == kParamActionUndo) {
+        if (pThis->v[p] > 0) {
+            // Check if we can Undo
+            if (dtc->undoCurrentIndex > 0) {
+                // Determine previous index (simple linear or circular logic)
+                // Using circular logic from previous example:
+                int prevIndex = (dtc->undoCurrentIndex - 1 + UNDO_STACK_SIZE) % UNDO_STACK_SIZE;
+                
+                // Safety check against wrapping around to invalid data if not full
+                if (dtc->undoSize < UNDO_STACK_SIZE && prevIndex > dtc->undoCurrentIndex) {
+                     // logic error or empty, do nothing
+                } else {
+                     applyState(pThis, prevIndex);
+                }
+            }
+            NT_setParameterFromUi( algoIndex,p + NT_parameterOffset(), 0 );
+        }
+        return;
+    }
+    else if (p == kParamActionRedo) {
+        if (pThis->v[p] > 0) {
+            // Check if we can Redo (next index exists and is valid)
+            int nextIndex = (dtc->undoCurrentIndex + 1) % UNDO_STACK_SIZE;
+            
+            // We can only redo if nextIndex is logically "ahead" and valid
+            // In a simple stack, redo is possible if undoCurrentIndex < (head - 1)
+            // This circular buffer logic needs to match exactly how you increment head.
+            // For simplicity, if we are not at the head-1, we can go forward.
+            
+            if (nextIndex != dtc->undoHead) { 
+                applyState(pThis, nextIndex);
+            }
+            NT_setParameterFromUi( algoIndex,p + NT_parameterOffset(), 0 );
+        }
+        return;
+    }
+	
 	auto& patchCtrls = pThis->dtc->patchCtrls;
 	auto& patchState = pThis->dtc->patchState;
 	
