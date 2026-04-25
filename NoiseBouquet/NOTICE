@@ -1,0 +1,62 @@
+NoiseBouquet — Notices and Attributions
+========================================
+
+NoiseBouquet is a fork of Befaco's Noise Plethora (VCV Rack edition),
+ported to the Expert Sleepers Disting NT module format. It is distributed
+under GPL-3.0 (see LICENSE).
+
+The following components are vendored or derived from upstream projects.
+Their original copyright headers are preserved in-source and remain in force.
+
+
+1. Noise Plethora algorithms
+----------------------------
+Files:    algos/P_*.hpp, algos/NoisePlethoraPlugin.hpp (NT-adapted),
+          algorithm structure and DSP graph topologies.
+Source:   Befaco / Noise Plethora (Eurorack module + VCV Rack adaptation).
+Authors:  Norman Goldwasser (original Teensy hardware), Befaco team
+          (Eurorack + VCV Rack adaptation), and contributors.
+License:  GNU General Public License v3.0.
+
+
+2. Teensy Audio Library
+-----------------------
+Files:    teensy/effect_*.cpp/.h(pp), teensy/synth_*.cpp/.hpp,
+          teensy/filter_*.cpp/.hpp, teensy/dspinst.h, teensy/audio_core.hpp,
+          teensy/mixer.hpp, teensy/synth_dc.hpp, teensy/synth_sine.hpp,
+          teensy/synth_waveform.hpp.
+Source:  https://github.com/PaulStoffregen/Audio
+Author:  Paul Stoffregen / PJRC.COM, LLC.
+License: MIT (see header in each file).
+Notes:   Adapted minimally to compile against a Disting-NT-friendly
+         reimplementation of the Teensy AudioStream/AudioConnection API
+         provided by teensy/TeensyAudioReplacements.hpp.
+         "Please support PJRC's efforts to develop open source software
+          by purchasing Teensy or other PJRC products."
+
+
+3. VCV Rack runtime shim
+------------------------
+Files:    include/rack.hpp, nt_rack_shim.cpp/.hpp.
+Source:  Re-implementation (not vendored) of the small subset of the VCV
+         Rack 2 API (`rack::dsp::RingBuffer`, `APP->engine->getSampleRate()`)
+         that the Noise Plethora algorithms call into. No code is copied
+         from VCV Rack. Behaviour is observable-equivalent.
+License: GPL-3.0 (matches enclosing project).
+
+
+4. NT-port code
+---------------
+Files:    NoiseBouquet.cpp, include/PluginRegistry.hpp,
+          include/nt_arena.hpp, include/nt_rack_shim.hpp,
+          tests/*, Makefile, PLAN.md.
+Source:  This project (NTUmbrella).
+License: GPL-3.0.
+
+
+Trademarks
+----------
+"Noise Plethora" is a product name of Befaco. NoiseBouquet is an
+independent, unaffiliated fork of the GPL-3.0 source; no endorsement
+by Befaco or PJRC is implied.
+"Disting" and "Disting NT" are products of Expert Sleepers Ltd.

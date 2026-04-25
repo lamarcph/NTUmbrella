@@ -289,6 +289,52 @@ public:
         return peak(buffer, numSamples) < threshold;
     }
 
+    // -----------------------------------------------------------------------
+    // Custom UI
+    // -----------------------------------------------------------------------
+
+    /// Query which controls the plugin overrides (bitmask of _NT_controls).
+    uint32_t hasCustomUi() {
+        if (_factory && _factory->hasCustomUi && _algorithm)
+            return _factory->hasCustomUi(_algorithm);
+        return 0;
+    }
+
+    /// Call setupUi — plugin writes current pot positions for soft-takeover.
+    void callSetupUi(float (&pots)[3]) {
+        if (_factory && _factory->setupUi && _algorithm)
+            _factory->setupUi(_algorithm, pots);
+    }
+
+    /// Send a UI event.  Constructs a _NT_uiData and calls customUi().
+    /// `controls` is a bitmask of _NT_controls that changed.
+    /// `pots` are current pot positions [0.0–1.0] for L, C, R.
+    /// `encoders` are encoder deltas (±1) for L, R.
+    /// `lastButtons` is the previous button state (for edge detection).
+    void sendUiEvent(uint16_t controls,
+                     float potL = 0.0f, float potC = 0.0f, float potR = 0.0f,
+                     int8_t encoderL = 0, int8_t encoderR = 0,
+                     uint16_t lastButtons = 0) {
+        if (!_factory || !_factory->customUi || !_algorithm) return;
+        _NT_uiData data = {};
+        data.pots[0]     = potL;
+        data.pots[1]     = potC;
+        data.pots[2]     = potR;
+        data.controls    = controls;
+        data.lastButtons = lastButtons;
+        data.encoders[0] = encoderL;
+        data.encoders[1] = encoderR;
+        _factory->customUi(_algorithm, data);
+    }
+
+    /// Call draw() via the factory.  Returns the draw() return value.
+    /// The plugin renders to the global NT_screen buffer.
+    bool callDraw() {
+        if (_factory && _factory->draw && _algorithm)
+            return _factory->draw(_algorithm);
+        return false;
+    }
+
 private:
     const _NT_factory*          _factory = nullptr;
     _NT_algorithm*              _algorithm = nullptr;

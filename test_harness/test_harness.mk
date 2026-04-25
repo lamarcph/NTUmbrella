@@ -54,6 +54,7 @@ test: $(TEST_EXE)
 
 test-run: $(TEST_EXE)
 	@./$(TEST_EXE)
+	@python3 $(HARNESS_DIR)/pgm_to_png.py $(TEST_BUILD_DIR)
 
 $(TEST_EXE): $(ALL_TEST_SRCS)
 	@mkdir -p $(TEST_BUILD_DIR)
