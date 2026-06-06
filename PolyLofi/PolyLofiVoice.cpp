@@ -744,7 +744,6 @@ void PolyLofiVoice::updateOscFrequencies() {
         currentFreq[i] = freq;
         targetFreq[i] = freq;
         osc[i].setFrequency(freq);
-        osc[i].hardSync();
     }
     glideBlocksRemaining = 0;
 }

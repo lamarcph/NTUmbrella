@@ -9,6 +9,7 @@
 #include "PolyLofiVoice.h"
 #include "PolyLofiParams.h"
 #include "MidiClockTracker.h"
+#include "CVClockTracker.h"
 #include "VoiceAllocator.h"
 #include "CheapMaths.h"
 #include "WavetableManager.h"
@@ -106,10 +107,7 @@ struct _polyLofiAlgorithm_DTC
     int      delaySyncMode = 0;           // 0=Free, 1-11 = synced to clock
 
     // CV clock tracking
-    float    prevClockValue = 0.0f;
-    uint32_t samplesSinceLastCvClock = 0;
-    float    cvClockBpm = 0.0f;
-    bool     cvClockActive = false;
+    CVClockTracker cvClock;
 
     // Wavetable manager
     WavetableManager wtManager;
@@ -496,8 +494,8 @@ static void updateSyncedDelayTime(_polyLofiAlgorithm_DTC* dtc) {
 // CV clock: update synced LFO/delay speeds from derived BPM
 // ---------------------------------------------------------------------------
 static void updateCvClockSpeeds(_polyLofiAlgorithm_DTC* dtc) {
-    if (!dtc->cvClockActive || dtc->cvClockBpm <= 0.0f) return;
-    float qnHz = dtc->cvClockBpm / 60.0f;
+    if (!dtc->cvClock.isActive()) return;
+    float qnHz = dtc->cvClock.getBPM() / 60.0f;
     for (int lfoIdx = 0; lfoIdx < 3; ++lfoIdx) {
         int mode = dtc->lfoSyncMode[lfoIdx];
         if (mode > 0 && mode < (int)(sizeof(kSyncMultipliers)/sizeof(float))) {
@@ -559,25 +557,13 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
     // --- Hardware clock CV edge detection (1 PPQN assumed) ---
     if (pThis->v[kParamClockInput] > 0) {
         float* clockIn = busFrames + (pThis->v[kParamClockInput] - 1) * numFrames;
-        const float threshold = 0.5f;
         for (int i = 0; i < numFrames; ++i) {
-            float cv = clockIn[i];
-            bool edge = (dtc->prevClockValue < threshold && cv >= threshold);
-            dtc->prevClockValue = cv;
-            if (edge) {
-                if (dtc->cvClockActive && dtc->samplesSinceLastCvClock > 0) {
-                    float periodSec = static_cast<float>(dtc->samplesSinceLastCvClock)
-                                    / NT_globals.sampleRate;
-                    dtc->cvClockBpm = 60.0f / periodSec;
-                    updateCvClockSpeeds(dtc);
-                }
-                dtc->cvClockActive = true;
-                dtc->samplesSinceLastCvClock = 0;
+            if (dtc->cvClock.processSample(clockIn[i], static_cast<float>(NT_globals.sampleRate))) {
+                updateCvClockSpeeds(dtc);
             }
-            dtc->samplesSinceLastCvClock++;
         }
     } else {
-        dtc->cvClockActive = false;
+        dtc->cvClock.reset();
     }
 
     // --- Phase 3: Bus index validation (R6f) ---

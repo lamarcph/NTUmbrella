@@ -35,6 +35,20 @@ namespace NtTestHarness {
 }
 
 // ---------------------------------------------------------------------------
+// MIDI capture — every NT_sendMidi*ByteMessage() call appends an event here.
+// Tests should call ntstub_midi_clear() before stimulating the plugin.
+// ---------------------------------------------------------------------------
+struct NtStubMidiEvent {
+    uint32_t dest;
+    uint8_t  status;
+    uint8_t  data1;
+    uint8_t  data2;
+    uint8_t  len;   // number of meaningful bytes, 1..3 (status counted)
+};
+void ntstub_midi_clear();
+const std::vector<NtStubMidiEvent>& ntstub_midi_log();
+
+// ---------------------------------------------------------------------------
 // PluginInstance — owns one algorithm instance and its memory
 // ---------------------------------------------------------------------------
 class PluginInstance {

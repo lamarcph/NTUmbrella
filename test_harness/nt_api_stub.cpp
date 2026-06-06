@@ -11,11 +11,14 @@
 
 #include <distingnt/api.h>
 #include <distingnt/wav.h>
+#define _DISTINGNT_SERIALISATION_INTERNAL
 #include <distingnt/serialisation.h>
+#undef _DISTINGNT_SERIALISATION_INTERNAL
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
 #include <cmath>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // NT_globals — the one piece of global state every plugin reads
@@ -173,9 +176,12 @@ static const unsigned char s_pixelMixFont[95][7] = {
     {0x00,0x00,0x08,0x15,0x02,0x00,0x00}, // ~
 };
 static const unsigned char s_pixelMixWidths[95] = {
+    // Glyph data for several narrow chars is encoded centered in 5 columns
+    // (bits 1..3), so they must be rendered at width 5 even though they
+    // would otherwise be drawn proportionally narrower. Affected: 1, I, [, ].
     3,1,3,5,5,5,5,1,3,3,5,5,2,5,1,5,
-    5,3,5,5,5,5,5,5,5,5,1,2,3,5,3,5,
-    5,5,5,5,5,5,5,5,5,3,4,5,5,5,5,5,
+    5,5,5,5,5,5,5,5,5,5,1,2,3,5,3,5,
+    5,5,5,5,5,5,5,5,5,5,4,5,5,5,5,5,
     5,5,5,5,5,5,5,5,5,5,5,3,5,3,5,5,
     3,5,5,5,5,5,5,5,5,3,3,5,3,5,5,5,
     5,5,4,5,4,5,5,5,5,5,5,3,1,3,5
@@ -317,14 +323,35 @@ extern "C" {
 }
 
 // ---------------------------------------------------------------------------
-// MIDI send — no-ops (tests can hook these if needed)
+// MIDI send — captured into a global buffer for tests to inspect.
+// Each call appends one MidiEvent (status + 0..2 data bytes + destination).
+// Tests call ntstub_midi_clear() before stimulating, then read ntstub_midi_log().
 // ---------------------------------------------------------------------------
+struct NtStubMidiEvent {
+    uint32_t dest;
+    uint8_t  status;
+    uint8_t  data1;
+    uint8_t  data2;
+    uint8_t  len;   // 1, 2 or 3 — number of meaningful bytes (status counted)
+};
+static std::vector<NtStubMidiEvent> g_midiLog;
+
 extern "C" {
-    void NT_sendMidiByte(uint32_t, uint8_t) {}
-    void NT_sendMidi2ByteMessage(uint32_t, uint8_t, uint8_t) {}
-    void NT_sendMidi3ByteMessage(uint32_t, uint8_t, uint8_t, uint8_t) {}
+    void NT_sendMidiByte(uint32_t dest, uint8_t b) {
+        g_midiLog.push_back({dest, b, 0, 0, 1});
+    }
+    void NT_sendMidi2ByteMessage(uint32_t dest, uint8_t s, uint8_t d1) {
+        g_midiLog.push_back({dest, s, d1, 0, 2});
+    }
+    void NT_sendMidi3ByteMessage(uint32_t dest, uint8_t s, uint8_t d1, uint8_t d2) {
+        g_midiLog.push_back({dest, s, d1, d2, 3});
+    }
     void NT_sendMidiSysEx(uint32_t, const uint8_t*, uint32_t, bool) {}
 }
+
+// Test-side accessors (declared in test_harness/plugin_harness.h)
+void ntstub_midi_clear() { g_midiLog.clear(); }
+const std::vector<NtStubMidiEvent>& ntstub_midi_log() { return g_midiLog; }
 
 // ---------------------------------------------------------------------------
 // Parameter management — stubs
@@ -418,30 +445,283 @@ extern "C" {
 }
 
 // ---------------------------------------------------------------------------
-// Serialisation stubs — no-ops for headless testing
+// Serialisation — in-memory JSON DOM implementation
 // ---------------------------------------------------------------------------
-_NT_jsonStream::_NT_jsonStream(void*) : refCon(nullptr) {}
-_NT_jsonStream::~_NT_jsonStream() {}
-void _NT_jsonStream::openArray() {}
-void _NT_jsonStream::closeArray() {}
-void _NT_jsonStream::openObject() {}
-void _NT_jsonStream::closeObject() {}
-void _NT_jsonStream::addMemberName(const char*) {}
-void _NT_jsonStream::addNumber(int) {}
-void _NT_jsonStream::addNumber(float) {}
-void _NT_jsonStream::addString(const char*) {}
-void _NT_jsonStream::addFourCC(uint32_t) {}
-void _NT_jsonStream::addBoolean(bool) {}
-void _NT_jsonStream::addNull() {}
+// Both _NT_jsonStream and _NT_jsonParse use the opaque `refCon` slot to point
+// at a private context allocated by the harness helpers in json_dom. The
+// ABI-public methods forward into that context.
 
-_NT_jsonParse::_NT_jsonParse(void*, int) : refCon(nullptr), i(0) {}
+#include "json_dom.h"
+using NtTestHarness::JsonValue;
+using NtTestHarness::JsonValuePtr;
+using NtTestHarness::JsonMember;
+
+namespace {
+
+// ---------- Write context -------------------------------------------------
+// stack[back()] is the container currently being written into. pendingName
+// is set by addMemberName() and consumed by the next added value.
+struct WriteCtx {
+    JsonValuePtr               root;
+    std::vector<JsonValuePtr>  stack;
+    std::string                pendingName;
+
+    void addValue(JsonValuePtr v) {
+        if (stack.empty()) return;
+        auto& c = *stack.back();
+        if (c.kind == JsonValue::K_OBJECT) {
+            JsonMember m;
+            m.name  = pendingName;
+            m.value = v;
+            c.obj.push_back(std::move(m));
+            pendingName.clear();
+        } else if (c.kind == JsonValue::K_ARRAY) {
+            c.arr.push_back(v);
+        }
+    }
+};
+
+// ---------- Read context --------------------------------------------------
+// `cursor` is the value that will be consumed by the next primitive read or
+// container-enter. When null, primitive readers pull from the current array
+// frame. Frames auto-pop when exhausted so the parent's iteration resumes
+// transparently (matches the example contract in distingNT_API).
+struct ReadCtx {
+    struct Frame {
+        JsonValuePtr container;
+        size_t       pos;
+    };
+    JsonValuePtr        root;
+    std::vector<Frame>  stack;
+    JsonValuePtr        cursor;
+
+    void autoPop() {
+        while (!stack.empty()) {
+            const auto& f = stack.back();
+            size_t end = (f.container->kind == JsonValue::K_ARRAY)
+                       ? f.container->arr.size()
+                       : f.container->obj.size();
+            if (f.pos >= end && !cursor) stack.pop_back();
+            else break;
+        }
+    }
+
+    // Pull the next value to consume. Cursor takes precedence; otherwise pop
+    // the next array element. Returns null if no value is available.
+    JsonValuePtr take() {
+        autoPop();
+        if (cursor) {
+            auto v = cursor;
+            cursor.reset();
+            return v;
+        }
+        if (!stack.empty()) {
+            auto& f = stack.back();
+            if (f.container->kind == JsonValue::K_ARRAY
+                && f.pos < f.container->arr.size()) {
+                return f.container->arr[f.pos++];
+            }
+        }
+        return nullptr;
+    }
+};
+
+} // anonymous
+
+// ---------- _NT_jsonStream ABI --------------------------------------------
+_NT_jsonStream::_NT_jsonStream(void* p) : refCon(p) {}
+_NT_jsonStream::~_NT_jsonStream() {}
+
+void _NT_jsonStream::openArray() {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    auto v = JsonValue::makeArray();
+    ctx->addValue(v);
+    ctx->stack.push_back(v);
+}
+void _NT_jsonStream::closeArray() {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    if (!ctx->stack.empty()) ctx->stack.pop_back();
+}
+void _NT_jsonStream::openObject() {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    auto v = JsonValue::makeObject();
+    ctx->addValue(v);
+    ctx->stack.push_back(v);
+}
+void _NT_jsonStream::closeObject() {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    if (!ctx->stack.empty()) ctx->stack.pop_back();
+}
+void _NT_jsonStream::addMemberName(const char* str) {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    ctx->pendingName = str ? str : "";
+}
+void _NT_jsonStream::addNumber(int v) {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    auto val = std::make_shared<JsonValue>();
+    val->kind = JsonValue::K_INT;
+    val->i    = v;
+    ctx->addValue(val);
+}
+void _NT_jsonStream::addNumber(float v) {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    auto val = std::make_shared<JsonValue>();
+    val->kind = JsonValue::K_FLOAT;
+    val->f    = v;
+    ctx->addValue(val);
+}
+void _NT_jsonStream::addString(const char* str) {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    auto val = std::make_shared<JsonValue>();
+    val->kind = JsonValue::K_STRING;
+    val->s    = str ? str : "";
+    ctx->addValue(val);
+}
+void _NT_jsonStream::addFourCC(uint32_t v) {
+    char buf[5] = { (char)((v>>24)&0xFF), (char)((v>>16)&0xFF),
+                    (char)((v>>8)&0xFF),  (char)(v&0xFF), 0 };
+    addString(buf);
+}
+void _NT_jsonStream::addBoolean(bool v) {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    auto val = std::make_shared<JsonValue>();
+    val->kind = JsonValue::K_BOOL;
+    val->b    = v;
+    ctx->addValue(val);
+}
+void _NT_jsonStream::addNull() {
+    auto* ctx = static_cast<WriteCtx*>(refCon);
+    auto val = std::make_shared<JsonValue>();
+    val->kind = JsonValue::K_NULL;
+    ctx->addValue(val);
+}
+
+// ---------- _NT_jsonParse ABI ---------------------------------------------
+_NT_jsonParse::_NT_jsonParse(void* p, int) : refCon(p), i(0) {}
 _NT_jsonParse::~_NT_jsonParse() {}
-bool _NT_jsonParse::numberOfArrayElements(int&) { return false; }
-bool _NT_jsonParse::numberOfObjectMembers(int&) { return false; }
-bool _NT_jsonParse::matchName(const char*) { return false; }
-bool _NT_jsonParse::skipMember() { return false; }
-bool _NT_jsonParse::number(int&) { return false; }
-bool _NT_jsonParse::number(float&) { return false; }
-bool _NT_jsonParse::string(const char*&) { return false; }
-bool _NT_jsonParse::boolean(bool&) { return false; }
-bool _NT_jsonParse::null() { return false; }
+
+bool _NT_jsonParse::numberOfArrayElements(int& num) {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    ctx->autoPop();
+    JsonValuePtr v;
+    if (ctx->cursor) { v = ctx->cursor; ctx->cursor.reset(); }
+    else if (!ctx->stack.empty()) {
+        auto& f = ctx->stack.back();
+        if (f.container->kind == JsonValue::K_ARRAY
+            && f.pos < f.container->arr.size())
+            v = f.container->arr[f.pos++];
+    }
+    if (!v || v->kind != JsonValue::K_ARRAY) return false;
+    num = (int)v->arr.size();
+    ctx->stack.push_back({v, 0});
+    return true;
+}
+
+bool _NT_jsonParse::numberOfObjectMembers(int& num) {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    ctx->autoPop();
+    JsonValuePtr v;
+    if (ctx->cursor) { v = ctx->cursor; ctx->cursor.reset(); }
+    else if (!ctx->stack.empty()) {
+        auto& f = ctx->stack.back();
+        if (f.container->kind == JsonValue::K_ARRAY
+            && f.pos < f.container->arr.size())
+            v = f.container->arr[f.pos++];
+    }
+    if (!v || v->kind != JsonValue::K_OBJECT) return false;
+    num = (int)v->obj.size();
+    ctx->stack.push_back({v, 0});
+    return true;
+}
+
+bool _NT_jsonParse::matchName(const char* name) {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    ctx->autoPop();
+    if (ctx->stack.empty()) return false;
+    auto& f = ctx->stack.back();
+    if (f.container->kind != JsonValue::K_OBJECT) return false;
+    if (f.pos >= f.container->obj.size()) return false;
+    const auto& m = f.container->obj[f.pos];
+    if (m.name != (name ? name : "")) return false;
+    ctx->cursor = m.value;
+    f.pos++;
+    return true;
+}
+
+bool _NT_jsonParse::skipMember() {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    ctx->autoPop();
+    if (ctx->stack.empty()) return false;
+    auto& f = ctx->stack.back();
+    if (f.container->kind != JsonValue::K_OBJECT) return false;
+    if (f.pos >= f.container->obj.size()) return false;
+    f.pos++;
+    ctx->cursor.reset();
+    return true;
+}
+
+bool _NT_jsonParse::number(int& v) {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    auto val = ctx->take();
+    if (!val) return false;
+    if (val->kind == JsonValue::K_INT)        { v = val->i; return true; }
+    if (val->kind == JsonValue::K_FLOAT)      { v = (int)val->f; return true; }
+    if (val->kind == JsonValue::K_BOOL)       { v = val->b ? 1 : 0; return true; }
+    return false;
+}
+bool _NT_jsonParse::number(float& v) {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    auto val = ctx->take();
+    if (!val) return false;
+    if (val->kind == JsonValue::K_FLOAT) { v = val->f; return true; }
+    if (val->kind == JsonValue::K_INT)   { v = (float)val->i; return true; }
+    return false;
+}
+bool _NT_jsonParse::string(const char*& str) {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    auto val = ctx->take();
+    if (!val) return false;
+    if (val->kind != JsonValue::K_STRING) return false;
+    str = val->s.c_str();
+    return true;
+}
+bool _NT_jsonParse::boolean(bool& v) {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    auto val = ctx->take();
+    if (!val) return false;
+    if (val->kind != JsonValue::K_BOOL) return false;
+    v = val->b;
+    return true;
+}
+bool _NT_jsonParse::null() {
+    auto* ctx = static_cast<ReadCtx*>(refCon);
+    auto val = ctx->take();
+    if (!val) return false;
+    return val->kind == JsonValue::K_NULL;
+}
+
+// ---------- Harness helpers (declared in json_dom.h) ----------------------
+namespace NtTestHarness {
+
+JsonValuePtr serialiseToDom(const _NT_factory* factory, _NT_algorithm* alg) {
+    if (!factory || !factory->serialise || !alg) return nullptr;
+    WriteCtx ctx;
+    ctx.root = JsonValue::makeObject();
+    ctx.stack.push_back(ctx.root);
+    _NT_jsonStream stream(&ctx);
+    factory->serialise(alg, stream);
+    return ctx.root;
+}
+
+bool deserialiseFromDom(const _NT_factory* factory, _NT_algorithm* alg,
+                        JsonValuePtr root) {
+    if (!factory || !factory->deserialise || !alg || !root) return false;
+    if (root->kind != JsonValue::K_OBJECT) return false;
+    ReadCtx ctx;
+    ctx.root   = root;
+    ctx.cursor = root;   // first call (numberOfObjectMembers) consumes root
+    _NT_jsonParse parse(&ctx, 0);
+    return factory->deserialise(alg, parse);
+}
+
+} // namespace NtTestHarness
