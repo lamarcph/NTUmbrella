@@ -122,6 +122,10 @@ enum
     kParamLfo1CutoffMod,
     kParamLfo2VibratoMod,
     kParamVelocitySens,
+    kParamPitchBendEnable,
+    kParamMicrotuneEnable,
+    kParamSclFile,
+    kParamMicrotuneRoot,
 
     // --- Preset control params (not stored in presets) ---
     kParamLoadPreset,
@@ -136,7 +140,8 @@ inline bool isSetupParam(int p) {
     return p == kParamOutput || p == kParamOutputMode ||
            p == kParamRightOutput || p == kParamRightOutputMode ||
            p == kParamMasterVolume || p == kParamPanSpread ||
-           p == kParamMidiChannel || p == kParamClockInput;
+           p == kParamMidiChannel || p == kParamClockInput ||
+           p == kParamPitchBendEnable;
 }
 
 // ---------------------------------------------------------------------------

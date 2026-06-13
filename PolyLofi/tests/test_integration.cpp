@@ -13,6 +13,7 @@
 #include "wav_writer.h"
 #include "sha256.h"
 #include "../PolyLofiParams.h"
+#include "../PolyLofiVoice.h"
 #include "../../LofiParts/WavetableGenerator.h"
 
 #include <cmath>
@@ -81,6 +82,9 @@ enum {
     kP_Lfo1CutoffMod = kParamLfo1CutoffMod,
     kP_Lfo2VibratoMod = kParamLfo2VibratoMod,
     kP_VelocitySens = kParamVelocitySens,
+    kP_MicrotuneEnable = kParamMicrotuneEnable,
+    kP_SclFile = kParamSclFile,
+    kP_MicrotuneRoot = kParamMicrotuneRoot,
     kP_LoadPreset = kParamLoadPreset,
     kP_SavePreset = kParamSavePreset,
     kP_SaveConfirm = kParamSaveConfirm,
@@ -5496,6 +5500,282 @@ TestResult test_legato_same_note_retrigger() {
 }
 
 // =========================================================================
+// SCL Microtuning unit tests — exercise PolyLofiVoice directly,
+// bypassing async SCL file loading by constructing _NT_sclNote arrays in
+// memory and calling setMicrotuning() directly.
+// =========================================================================
+
+// Shared delay buffer for voice-level tests (content never read in these tests).
+static float s_voiceDelayBuf[DELAY_SIZE] = {};
+
+// Absolute tolerance for ratio-based frequency assertions (~0.1 Hz).
+static constexpr float kRatioHz_eps = 0.1f;
+// Relative tolerance for 12-TET fast_powf assertions (0.5% max error).
+static constexpr float kTwelveTET_eps_pct = 0.005f;
+
+// Build a ratio _NT_sclNote.  isRatio() returns true when denominatorValue < 0.
+static _NT_sclNote makeSclRatio(uint32_t num, uint32_t den) {
+    _NT_sclNote n;
+    n.numeratorValue   = (int32_t)num;
+    n.denominatorValue = -(int32_t)den;
+    return n;
+}
+
+// Build a cents/octaves _NT_sclNote.
+// isRatio() returns false for positive octave values (upper 32 bits > 0).
+static _NT_sclNote makeSclOctaves(double octaves) {
+    _NT_sclNote n;
+    n.octaves = octaves;
+    return n;
+}
+
+// Create a minimal PolyLofiVoice ready for tuning tests (no audio blocks run).
+static PolyLofiVoice makeTestVoice() {
+    PolyLofiVoice v(s_voiceDelayBuf);
+    v.setSampleRate(44100.0f, 64.0f);
+    return v;
+}
+
+// Call noteOn and return the computed osc 0 frequency (semitone/fine = 0, no bend).
+static float voiceFreqAfterNoteOn(PolyLofiVoice& v, int midiNote) {
+    v.noteOn(midiNote, 0.8f);
+    return v.getOscFrequency(0);
+}
+
+// =========================================================================
+// Test: Standard 12-TET tuning (microtuning disabled — baseline)
+// =========================================================================
+TestResult test_microtune_12tet_baseline() {
+    TEST_BEGIN("Microtuning: 12-TET baseline (microtuning disabled)");
+
+    PolyLofiVoice v = makeTestVoice();
+    // No setMicrotuning() call → disabled by default.
+
+    // A4 = 440 Hz (fast_powf(2,0) = 1: exact)
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 69), 440.0f, 0.5f, "A4 (note 69) = 440 Hz");
+
+    // A5 = 880 Hz (fast_powf(2,1) = 2: exact)
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 81), 880.0f, 0.5f, "A5 (note 81) = 880 Hz");
+
+    // A3 = 220 Hz (fast_powf(2,-1) = 0.5: exact)
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 57), 220.0f, 0.5f, "A3 (note 57) = 220 Hz");
+
+    // C4 ≈ 261.63 Hz — fast_powf approximation, allow 0.5% tolerance
+    float expected_c4 = 440.0f * (float)std::pow(2.0, (60 - 69) / 12.0);
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 60), expected_c4,
+                expected_c4 * kTwelveTET_eps_pct, "C4 ≈ 261.63 Hz");
+
+    TEST_PASS();
+}
+
+// =========================================================================
+// Test: Microtuning with null/empty notes falls back to 12-TET
+// =========================================================================
+TestResult test_microtune_disabled_passthrough() {
+    TEST_BEGIN("Microtuning: null/zero notes falls back to 12-TET");
+
+    PolyLofiVoice v = makeTestVoice();
+
+    // null notes pointer → 12-TET
+    v.setMicrotuning(true, 69, nullptr, 5);
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 69), 440.0f, 0.5f,
+                "null notes ptr → 440 Hz (12TET)");
+
+    // numNotes = 0 → 12-TET
+    _NT_sclNote dummy[1] = {};
+    v.setMicrotuning(true, 69, dummy, 0);
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 69), 440.0f, 0.5f,
+                "numNotes=0 → 440 Hz (12TET)");
+
+    // enabled = false with valid notes → 12-TET
+    _NT_sclNote period = makeSclRatio(2, 1);
+    v.setMicrotuning(false, 69, &period, 1);
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 69), 440.0f, 0.5f,
+                "enabled=false → 440 Hz (12TET)");
+
+    TEST_PASS();
+}
+
+// =========================================================================
+// Test: Ratio-based just-intonation 5-note scale
+//   Degrees: 9/8, 5/4, 3/2, 15/8, period 2/1 — root = 69 (A4 = 440 Hz)
+// =========================================================================
+TestResult test_microtune_ratio_scale_ji() {
+    TEST_BEGIN("Microtuning: 5-note just intonation ratio scale");
+
+    _NT_sclNote scale[5];
+    scale[0] = makeSclRatio(9,  8);  // degree 1 → 440 × 9/8  = 495 Hz
+    scale[1] = makeSclRatio(5,  4);  // degree 2 → 440 × 5/4  = 550 Hz
+    scale[2] = makeSclRatio(3,  2);  // degree 3 → 440 × 3/2  = 660 Hz
+    scale[3] = makeSclRatio(15, 8);  // degree 4 → 440 × 15/8 = 825 Hz
+    scale[4] = makeSclRatio(2,  1);  // period   → 440 × 2    = 880 Hz
+
+    PolyLofiVoice v = makeTestVoice();
+    v.setMicrotuning(true, 69, scale, 5);
+
+    // root=69: 440 × 1 = 440 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 69), 440.0f, kRatioHz_eps, "root (69) = 440 Hz");
+    // degree 1: 440 × 9/8 = 495 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 70), 495.0f, kRatioHz_eps, "degree 1 = 495 Hz");
+    // degree 2: 440 × 5/4 = 550 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 71), 550.0f, kRatioHz_eps, "degree 2 = 550 Hz");
+    // degree 3 (perfect fifth): 440 × 3/2 = 660 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 72), 660.0f, kRatioHz_eps, "degree 3 (fifth) = 660 Hz");
+    // degree 4: 440 × 15/8 = 825 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 73), 825.0f, kRatioHz_eps, "degree 4 = 825 Hz");
+    // period (root + 5 steps): 440 × 2 = 880 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 74), 880.0f, kRatioHz_eps, "period = 880 Hz");
+
+    TEST_PASS();
+}
+
+// =========================================================================
+// Test: Upward octave wrapping — notes beyond the period
+// =========================================================================
+TestResult test_microtune_octave_wrap_up() {
+    TEST_BEGIN("Microtuning: upward octave wrapping");
+
+    _NT_sclNote scale[5];
+    scale[0] = makeSclRatio(9,  8);
+    scale[1] = makeSclRatio(5,  4);
+    scale[2] = makeSclRatio(3,  2);
+    scale[3] = makeSclRatio(15, 8);
+    scale[4] = makeSclRatio(2,  1);
+
+    PolyLofiVoice v = makeTestVoice();
+    v.setMicrotuning(true, 69, scale, 5);
+
+    // root + 10 = two octaves above root: 440 × 2² = 1760 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 79), 1760.0f, 0.5f, "root+10 = 1760 Hz");
+
+    // root + 6 = octave + degree 1: 440 × 2 × (9/8) = 990 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 75), 990.0f, kRatioHz_eps, "root+6 = 990 Hz");
+
+    TEST_PASS();
+}
+
+// =========================================================================
+// Test: Downward octave wrapping — notes below root
+// =========================================================================
+TestResult test_microtune_octave_wrap_down() {
+    TEST_BEGIN("Microtuning: downward octave wrapping");
+
+    _NT_sclNote scale[5];
+    scale[0] = makeSclRatio(9,  8);
+    scale[1] = makeSclRatio(5,  4);
+    scale[2] = makeSclRatio(3,  2);
+    scale[3] = makeSclRatio(15, 8);
+    scale[4] = makeSclRatio(2,  1);
+
+    PolyLofiVoice v = makeTestVoice();
+    v.setMicrotuning(true, 69, scale, 5);
+
+    // root - 1 → degree 4 in the octave below: 440 × (1/2) × (15/8) = 412.5 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 68), 412.5f, kRatioHz_eps, "root-1 = 412.5 Hz");
+
+    // root - 5 → root of octave below: 440 × 0.5 = 220 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 64), 220.0f, kRatioHz_eps, "root-5 = 220 Hz");
+
+    TEST_PASS();
+}
+
+// =========================================================================
+// Test: Root transposition — root MIDI note shifts all frequencies
+// =========================================================================
+TestResult test_microtune_root_transposition() {
+    TEST_BEGIN("Microtuning: root transposition");
+
+    // Single-degree scale (only the period), so any two adjacent steps are
+    // one octave apart — useful to isolate rootHz calculation.
+    _NT_sclNote period = makeSclRatio(2, 1);
+
+    PolyLofiVoice v = makeTestVoice();
+
+    // Root = 57 (A3 = 220 Hz exactly via fast_powf)
+    v.setMicrotuning(true, 57, &period, 1);
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 57), 220.0f, 0.5f,
+                "A3 root at note 57 = 220 Hz");
+
+    // One step above root (= one period): 220 × 2 = 440 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 58), 440.0f, 0.5f,
+                "A3 root + 1 step (period) = 440 Hz");
+
+    // Root = 81 (A5 = 880 Hz exactly): change root, verify
+    v.setMicrotuning(true, 81, &period, 1);
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 81), 880.0f, 0.5f,
+                "A5 root at note 81 = 880 Hz");
+
+    TEST_PASS();
+}
+
+// =========================================================================
+// Test: Hot-swap microtuning on an active voice updates frequencies
+// =========================================================================
+TestResult test_microtune_hot_swap() {
+    TEST_BEGIN("Microtuning: hot-swap updates active voice frequencies");
+
+    _NT_sclNote scale[5];
+    scale[0] = makeSclRatio(9,  8);
+    scale[1] = makeSclRatio(5,  4);
+    scale[2] = makeSclRatio(3,  2);
+    scale[3] = makeSclRatio(15, 8);
+    scale[4] = makeSclRatio(2,  1);
+
+    PolyLofiVoice v = makeTestVoice();
+
+    // Play A4 with standard 12-TET
+    v.noteOn(69, 0.8f);
+    ASSERT_NEAR(v.getOscFrequency(0), 440.0f, 0.5f,
+                "before hot-swap: 440 Hz (12TET)");
+
+    // Enable microtuning on the active voice — updateOscFrequencies() fires
+    v.setMicrotuning(true, 69, scale, 5);
+    ASSERT_NEAR(v.getOscFrequency(0), 440.0f, kRatioHz_eps,
+                "after hot-swap (root note): still 440 Hz");
+
+    // New noteOn: verify new tuning is applied
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 72), 660.0f, kRatioHz_eps,
+                "hot-swap: degree 3 = 660 Hz");
+
+    // Disable: back to 12-TET
+    v.setMicrotuning(false, 69, scale, 5);
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 69), 440.0f, 0.5f,
+                "after disable: 12-TET restored");
+
+    TEST_PASS();
+}
+
+// =========================================================================
+// Test: Cents/octaves-encoded scale — 7-TET
+//   Each step = 1/7 octave; period = 1.0 octave
+// =========================================================================
+TestResult test_microtune_cents_scale_7tet() {
+    TEST_BEGIN("Microtuning: octaves-encoded 7-TET scale");
+
+    _NT_sclNote scale[7];
+    for (int i = 0; i < 7; ++i)
+        scale[i] = makeSclOctaves((double)(i + 1) / 7.0);  // scale[6].octaves = 1.0
+
+    PolyLofiVoice v = makeTestVoice();
+    v.setMicrotuning(true, 69, scale, 7);
+
+    // Root = 440 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 69), 440.0f, kRatioHz_eps,
+                "7-TET root = 440 Hz");
+
+    // Degree 1: 440 × 2^(1/7) — std::pow used internally for octaves form
+    float exp_deg1 = (float)(440.0 * std::pow(2.0, 1.0 / 7.0));
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 70), exp_deg1, 0.5f,
+                "7-TET degree 1 ≈ 485.8 Hz");
+
+    // Period (root + 7 steps): 440 × 2 = 880 Hz
+    ASSERT_NEAR(voiceFreqAfterNoteOn(v, 76), 880.0f, kRatioHz_eps,
+                "7-TET period (note 76) = 880 Hz");
+
+    TEST_PASS();
+}
+
+// =========================================================================
 // Main
 // =========================================================================
 int main() {
@@ -5670,5 +5950,15 @@ int main() {
 
         // --- Regression ---
         test_golden_wav_hashes,
+
+        // --- SCL Microtuning ---
+        test_microtune_12tet_baseline,
+        test_microtune_disabled_passthrough,
+        test_microtune_ratio_scale_ji,
+        test_microtune_octave_wrap_up,
+        test_microtune_octave_wrap_down,
+        test_microtune_root_transposition,
+        test_microtune_hot_swap,
+        test_microtune_cents_scale_7tet,
     });
 }

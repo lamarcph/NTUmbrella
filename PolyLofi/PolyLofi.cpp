@@ -4,6 +4,7 @@
 #include <cstring>
 #include <distingnt/api.h>
 #include <distingnt/wav.h>
+#include <distingnt/microtuning.h>
 #include <distingnt/serialisation.h>
 #include <array>
 #include "PolyLofiVoice.h"
@@ -77,6 +78,7 @@ struct _polyLofiAlgorithm_DTC
     // MIDI controller state
     float pitchBendSemitones = 0.0f;     // Current pitch bend in semitones
     float pitchBendRange = 2.0f;          // Bend range in semitones (±)
+    bool pitchBendEnabled = true;         // Enable/disable incoming pitch bend handling
     float modWheelValue = 0.0f;           // CC1 mod wheel (0.0-1.0)
     float aftertouchValue = 0.0f;         // Channel aftertouch (0.0-1.0)
     bool sustainPedalDown = false;        // CC64 sustain pedal
@@ -87,6 +89,17 @@ struct _polyLofiAlgorithm_DTC
 
     // Legato mode (mono with no envelope retrigger)
     bool legato = false;
+
+    // Microtuning
+    bool microtuneEnabled = false;
+    int microtuneRootMidi = 69;
+    int sclFileIndex = 0;
+    bool sclCardMounted = false;
+    bool sclAwaitingCallback = false;
+    bool sclLoaded = false;
+    _NT_sclRequest sclRequest = {};
+    _NT_sclNote sclNotes[128] = {};
+    uint32_t sclNumNotes = 0;
 
     // Direct mod amounts (bypass mod matrix)
     float lfo1CutoffMod = 0.0f;   // LFO1→Cutoff depth (-1..+1 → ±4 octaves)
@@ -143,6 +156,22 @@ struct _polyLofiAlgorithm : public _NT_algorithm
 	
 	_polyLofiAlgorithm_DTC*	dtc;
 };
+
+static void applyMicrotuningToVoices(_polyLofiAlgorithm_DTC* dtc) {
+    const _NT_sclNote* notes = (dtc->microtuneEnabled && dtc->sclLoaded) ? dtc->sclNotes : nullptr;
+    const uint32_t numNotes = (dtc->microtuneEnabled && dtc->sclLoaded) ? dtc->sclNumNotes : 0;
+    for (int i = 0; i < dtc->numVoices; ++i) {
+        dtc->voices[i]->setMicrotuning(dtc->microtuneEnabled, dtc->microtuneRootMidi, notes, numNotes);
+    }
+}
+
+static void sclReadCallback(void* callbackData) {
+    auto* dtc = static_cast<_polyLofiAlgorithm_DTC*>(callbackData);
+    dtc->sclAwaitingCallback = false;
+    dtc->sclLoaded = (!dtc->sclRequest.error && dtc->sclRequest.numNotes > 0);
+    dtc->sclNumNotes = dtc->sclLoaded ? dtc->sclRequest.numNotes : 0;
+    applyMicrotuningToVoices(dtc);
+}
 
 static const _NT_parameter	parameters[] = {
      NT_PARAMETER_AUDIO_OUTPUT_WITH_MODE( "Output", 1, 13 )
@@ -246,6 +275,10 @@ static const _NT_parameter	parameters[] = {
     { "LFO1>Cutoff", -1000, 1000, 0, kNT_unitNone, kNT_scaling1000, NULL },
     { "LFO2>Vibrato", 0, 100, 0, kNT_unitCents, 0, NULL },
     { "Vel Sens", 0, 100, 100, kNT_unitPercent, 0, NULL },
+    { "Pitch Bend", 0, 1, 1, kNT_unitEnum, 0, enumStringsOnOff },
+    { "Microtune", 0, 1, 0, kNT_unitEnum, 0, enumStringsOnOff },
+    { "Scl File", 0, 32767, 0, kNT_unitConfirm, 0, NULL },
+    { "Tune Root", 0, 127, 69, kNT_unitMIDINote, 0, NULL },
     { "Load Preset", 0, 13, 0, kNT_unitConfirm, 0, NULL },
     { "Save Slot", 0, 13, 0, kNT_unitHasStrings, 0, NULL },
     { "Save", 0, 1, 0, kNT_unitEnum, 0, enumStringsOnOff },
@@ -257,21 +290,21 @@ static const uint8_t page1[] = { kParamOsc1Waveform, kParamOsc1Wavetable, kParam
                                  kParamLfo2VibratoMod };
 static const uint8_t page2[] = { kParamBaseCutoff, kParamResonance, kParamFilterEnvAmount, kParamFilterMode, kParamFilterModel, kParamDrive, kParamKeyboardTracking, kParamLfo1CutoffMod, kParamFilterAttack, kParamFilterDecay, kParamFilterSustain, kParamFilterRelease, kParamFilterShape };
 static const uint8_t page3[] = { kParamAmpAttack, kParamAmpDecay, kParamAmpSustain, kParamAmpRelease, kParamAmpShape, kParamVelocitySens, kParamGlideTime, kParamGlideMode, kParamLegato };
-static const uint8_t page4[] = { kParamOutput, kParamOutputMode, kParamRightOutput, kParamRightOutputMode, kParamMasterVolume, kParamPanSpread, kParamMidiChannel, kParamClockInput, kParamLoadPreset, kParamSavePreset, kParamSaveConfirm };
+static const uint8_t page4[] = { kParamOutput, kParamOutputMode, kParamRightOutput, kParamRightOutputMode, kParamMasterVolume, kParamPanSpread, kParamMidiChannel, kParamPitchBendEnable, kParamMicrotuneEnable, kParamSclFile, kParamMicrotuneRoot, kParamClockInput, kParamLoadPreset, kParamSavePreset, kParamSaveConfirm };
 static const uint8_t page5[] = { kParamLfoSpeed, kParamLfoShape, kParamLfoUnipolar, kParamLfoMorph, kParamLfo1SyncMode, kParamLfo1KeySync, kParamLfo2Speed, kParamLfo2Shape, kParamLfo2Unipolar, kParamLfo2Morph, kParamLfo2SyncMode, kParamLfo2KeySync, kParamLfo3Speed, kParamLfo3Shape, kParamLfo3Unipolar, kParamLfo3Morph, kParamLfo3SyncMode, kParamLfo3KeySync };
 static const uint8_t page6[] = { kParamFM3to2, kParamFM3to1, kParamFM2to1, kParamSync3to2, kParamSync3to1, kParamSync2to1, kParamModEnvAttack, kParamModEnvDecay, kParamModEnvSustain, kParamModEnvRelease, kParamModEnvShape };
 static const uint8_t page8[] = { kParamMod1Source, kParamMod1Dest, kParamMod1Amount, kParamMod2Source, kParamMod2Dest, kParamMod2Amount, kParamMod3Source, kParamMod3Dest, kParamMod3Amount, kParamMod4Source, kParamMod4Dest, kParamMod4Amount };
 static const uint8_t page9[] = { kParamDelayTime, kParamDelaySyncMode, kParamDelayFeedback, kParamDelayMix, kParamDelayDiffusion, kParamDelayFBFilter, kParamDelayFBFreq, kParamDelayPitchTrack, kParamBitCrush, kParamSampleReduce };
 
 static const _NT_parameterPage pages[] = {
-    { "Oscs", ARRAY_SIZE(page1), page1 },
-    { "Filter", ARRAY_SIZE(page2), page2 },
-    { "Amp", ARRAY_SIZE(page3), page3 },
-    { "LFOs", ARRAY_SIZE(page5), page5 },
-    { "Mod Matrix", ARRAY_SIZE(page8), page8 },
-    { "FM/Sync", ARRAY_SIZE(page6), page6 },
-    { "Effects", ARRAY_SIZE(page9), page9 },
-    { "Setup", ARRAY_SIZE(page4), page4 }
+    { "Oscs",       ARRAY_SIZE(page1), 0, {}, page1 },
+    { "Filter",     ARRAY_SIZE(page2), 0, {}, page2 },
+    { "Amp",        ARRAY_SIZE(page3), 0, {}, page3 },
+    { "LFOs",       ARRAY_SIZE(page5), 0, {}, page5 },
+    { "Mod Matrix", ARRAY_SIZE(page8), 0, {}, page8 },
+    { "FM/Sync",    ARRAY_SIZE(page6), 0, {}, page6 },
+    { "Effects",    ARRAY_SIZE(page9), 0, {}, page9 },
+    { "Setup",      ARRAY_SIZE(page4), 0, {}, page4 }
 };
 
 static const _NT_parameterPages parameterPages = { ARRAY_SIZE(pages), pages };
@@ -302,6 +335,14 @@ _NT_algorithm*	construct( const _NT_algorithmMemoryPtrs& ptrs, const _NT_algorit
 	_polyLofiAlgorithm* alg = new (ptrs.sram) _polyLofiAlgorithm( (_polyLofiAlgorithm_DTC*)ptrs.dtc );
 	alg->parameters = parameters;
 	alg->parameterPages = &parameterPages;
+    dtc->sclRequest.notes = dtc->sclNotes;
+    dtc->sclRequest.maxNotes = ARRAY_SIZE(dtc->sclNotes);
+    dtc->sclRequest.nameBuffer = nullptr;
+    dtc->sclRequest.nameBufferSize = 0;
+    dtc->sclRequest.descriptionBuffer = nullptr;
+    dtc->sclRequest.descriptionBufferSize = 0;
+    dtc->sclRequest.callback = sclReadCallback;
+    dtc->sclRequest.callbackData = dtc;
     {
         dtc->delaySamples = dtc->delayTimeMs * 0.001f * NT_globals.sampleRate;
     }
@@ -352,6 +393,7 @@ _NT_algorithm*	construct( const _NT_algorithmMemoryPtrs& ptrs, const _NT_algorit
         dtc->voices[i]->glideMode = dtc->glideMode;
         dtc->voices[i]->bitCrushBits = dtc->bitCrushBits;
         dtc->voices[i]->sampleReduceFactor = dtc->sampleReduceFactor;
+        dtc->voices[i]->setMicrotuning(dtc->microtuneEnabled, dtc->microtuneRootMidi, nullptr, 0);
 
         for (int oscIdx = 0; oscIdx < PolyLofiVoice::NUM_OSC; ++oscIdx) {
             dtc->voices[i]->setOscillatorParameters(oscIdx,
@@ -387,6 +429,29 @@ void parameterChanged(_NT_algorithm* self, int p)
     _polyLofiAlgorithm* pThis = (_polyLofiAlgorithm*)self;
     _polyLofiAlgorithm_DTC* dtc = pThis->dtc;
     int16_t raw = pThis->v[p];
+
+    if (p == kParamMicrotuneEnable) {
+        dtc->microtuneEnabled = (raw != 0);
+        applyMicrotuningToVoices(dtc);
+        return;
+    }
+
+    if (p == kParamMicrotuneRoot) {
+        dtc->microtuneRootMidi = raw;
+        applyMicrotuningToVoices(dtc);
+        return;
+    }
+
+    if (p == kParamSclFile) {
+        dtc->sclFileIndex = raw;
+        if (dtc->sclCardMounted && !dtc->sclAwaitingCallback) {
+            dtc->sclRequest.index = static_cast<uint32_t>(dtc->sclFileIndex);
+            if (NT_readScl(dtc->sclRequest)) {
+                dtc->sclAwaitingCallback = true;
+            }
+        }
+        return;
+    }
 
     // Filter subsystem
     if (p == kParamBaseCutoff || p == kParamResonance || p == kParamFilterEnvAmount ||
@@ -446,7 +511,7 @@ void parameterChanged(_NT_algorithm* self, int p)
         return;
     }
 
-    // Everything else: MIDI channel, glide, bit crush, wavetable, pan spread
+    // Everything else: MIDI channel, pitch bend enable, glide, bit crush, wavetable, pan spread
     routeMisc(dtc, p, raw);
 }
 
@@ -542,6 +607,27 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
     
     // --- Wavetable: SD card mount detection + push loaded tables to voices ---
     dtc->wtManager.update(dtc->voices, dtc->numVoices);
+
+    // --- Microtuning: SD card mount detection + load selected SCL ---
+    bool cardMounted = NT_isSdCardMounted();
+    if (dtc->sclCardMounted != cardMounted) {
+        dtc->sclCardMounted = cardMounted;
+        if (cardMounted) {
+            dtc->sclLoaded = false;
+            dtc->sclNumNotes = 0;
+            applyMicrotuningToVoices(dtc);
+            if (!dtc->sclAwaitingCallback) {
+                dtc->sclRequest.index = static_cast<uint32_t>(dtc->sclFileIndex);
+                if (NT_readScl(dtc->sclRequest)) {
+                    dtc->sclAwaitingCallback = true;
+                }
+            }
+        } else {
+            dtc->sclLoaded = false;
+            dtc->sclNumNotes = 0;
+            applyMicrotuningToVoices(dtc);
+        }
+    }
 
     // --- Deferred Save confirm auto-reset (~150ms hold for display) ---
     if (dtc->saveResetCountdown > 0) {
@@ -725,6 +811,9 @@ void midiMessage(_NT_algorithm* self, uint8_t status, uint8_t data1, uint8_t dat
             }
         }
     } else if ((status & 0xF0) == 0xE0) { // Pitch bend
+        if (!dtc->pitchBendEnabled) {
+            return;
+        }
         // data1 = LSB, data2 = MSB → 14-bit value 0-16383, center 8192
         int bendRaw = (data2 << 7) | data1;
         float bendNorm = (static_cast<float>(bendRaw) - 8192.0f) / 8192.0f; // -1.0 to +1.0
@@ -827,6 +916,17 @@ int parameterString(_NT_algorithm* self, int p, int v, char* buff)
     int len = 0;
     switch (p)
     {
+    case kParamSclFile:
+    {
+        _NT_sclInfo info;
+        NT_getSclInfo(static_cast<uint32_t>(v), info);
+        if (info.name) {
+            strncpy(buff, info.name, kNT_parameterStringSize - 1);
+            buff[kNT_parameterStringSize - 1] = '\0';
+            len = strlen(buff);
+        }
+        break;
+    }
     case kParamOsc1Wavetable:
     case kParamOsc2Wavetable:
     case kParamOsc3Wavetable:

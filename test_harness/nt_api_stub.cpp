@@ -9,8 +9,10 @@
 // Reusable across every plugin in the NTUmbrella monorepo.
 // =============================================================================
 
+#include <cstddef>
 #include <distingnt/api.h>
 #include <distingnt/wav.h>
+#include <distingnt/microtuning.h>
 #define _DISTINGNT_SERIALISATION_INTERNAL
 #include <distingnt/serialisation.h>
 #undef _DISTINGNT_SERIALISATION_INTERNAL
@@ -442,6 +444,15 @@ extern "C" {
     float    NT_evaluateWavetable(const _NT_wavetableRequest&, _NT_wavetableEvaluation&) { return 0.0f; }
     bool     NT_streamOpen(_NT_stream, const _NT_streamOpenData&) { return false; }
     uint32_t NT_streamRender(_NT_stream, _NT_frame*, uint32_t, float) { return 0; }
+
+    // SCL microtuning — no SD card in headless tests
+    uint32_t NT_getNumScl(void) { return 0; }
+    void     NT_getSclInfo(uint32_t, _NT_sclInfo& info) { info.name = ""; }
+    bool     NT_readScl(_NT_sclRequest& request) {
+        request.error = true;
+        request.numNotes = 0;
+        return false;
+    }
 }
 
 // ---------------------------------------------------------------------------

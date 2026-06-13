@@ -381,6 +381,14 @@ inline void routeMisc(_polyLofiAlgorithm_DTC* dtc, int p, int16_t raw) {
         case kParamMidiChannel:
             dtc->midiChannel = raw;
             break;
+        case kParamPitchBendEnable:
+            dtc->pitchBendEnabled = (raw != 0);
+            if (!dtc->pitchBendEnabled) {
+                dtc->pitchBendSemitones = 0.0f;
+                for (int i = 0; i < dtc->numVoices; ++i)
+                    dtc->voices[i]->setPitchBend(0.0f);
+            }
+            break;
         case kParamGlideTime:
             dtc->glideTimeMs = raw;
             BROADCAST(glideTimeMs, dtc->glideTimeMs);

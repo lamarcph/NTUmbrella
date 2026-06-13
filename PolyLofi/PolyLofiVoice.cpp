@@ -117,6 +117,17 @@ void PolyLofiVoice::setOscWavetable(int oscIdx, const int16_t* data, uint32_t nu
     osc[oscIdx].setWavetable(data, numWaves, waveLength);
 }
 
+void PolyLofiVoice::setMicrotuning(bool enabled, int rootMidiNote, const _NT_sclNote* notes, uint32_t numNotes) {
+    microtuneEnabled = enabled;
+    microtuneRootMidi = std::clamp(rootMidiNote, 0, 127);
+    microtuneNotes = notes;
+    microtuneNumNotes = numNotes;
+
+    if (active && note >= 0) {
+        updateOscFrequencies();
+    }
+}
+
 // ============================================================================
 // Note lifecycle
 // ============================================================================
@@ -134,9 +145,10 @@ void PolyLofiVoice::noteOn(int midiNote, float vel) {
     sustainHeldOff = false;  // Key is actively held — clear deferred note-off
 
     // Calculate target frequencies for new note
+    float baseHz = noteToFrequencyHz(note);
     for (int i = 0; i < NUM_OSC; ++i) {
-        float semitoneFreq = ((float)note - 69.0f + oscSemitone[i] + pitchBendSemitones) / 12.0f;
-        float freq = 440.0f * fast_powf(2.0f, semitoneFreq) * fast_powf(2.0f, oscFine[i] / 1200.0f);
+        float semitoneOffset = oscSemitone[i] + pitchBendSemitones;
+        float freq = baseHz * fast_powf(2.0f, semitoneOffset / 12.0f) * fast_powf(2.0f, oscFine[i] / 1200.0f);
         targetFreq[i] = freq;
     }
 
@@ -210,9 +222,10 @@ void PolyLofiVoice::legatoRetrigger(int midiNote, float vel) {
     note = midiNote;
     velocity = vel;
 
+    float baseHz = noteToFrequencyHz(note);
     for (int i = 0; i < NUM_OSC; ++i) {
-        float semitoneFreq = ((float)note - 69.0f + oscSemitone[i] + pitchBendSemitones) / 12.0f;
-        float freq = 440.0f * fast_powf(2.0f, semitoneFreq) * fast_powf(2.0f, oscFine[i] / 1200.0f);
+        float semitoneOffset = oscSemitone[i] + pitchBendSemitones;
+        float freq = baseHz * fast_powf(2.0f, semitoneOffset / 12.0f) * fast_powf(2.0f, oscFine[i] / 1200.0f);
         targetFreq[i] = freq;
     }
 
@@ -738,12 +751,53 @@ void PolyLofiVoice::renderStealTail() {
 }
 
 void PolyLofiVoice::updateOscFrequencies() {
+    float baseHz = noteToFrequencyHz(note);
     for (int i = 0; i < NUM_OSC; ++i) {
-        float semitoneFreq = ((float)note - 69.0f + oscSemitone[i] + pitchBendSemitones) / 12.0f;
-        float freq = 440.0f * fast_powf(2.0f, semitoneFreq) * fast_powf(2.0f, oscFine[i] / 1200.0f);
+        float semitoneOffset = oscSemitone[i] + pitchBendSemitones;
+        float freq = baseHz * fast_powf(2.0f, semitoneOffset / 12.0f) * fast_powf(2.0f, oscFine[i] / 1200.0f);
         currentFreq[i] = freq;
         targetFreq[i] = freq;
         osc[i].setFrequency(freq);
     }
     glideBlocksRemaining = 0;
+}
+
+double PolyLofiVoice::sclNoteRatio(const _NT_sclNote& note) {
+    if (note.isRatio()) {
+        const uint32_t den = note.denominator();
+        if (den == 0) return 1.0;
+        return static_cast<double>(note.numerator()) / static_cast<double>(den);
+    }
+    return std::pow(2.0, note.octaves);
+}
+
+float PolyLofiVoice::noteToFrequencyHz(int midiNote) const {
+    const float refA4 = 440.0f;
+
+    if (!microtuneEnabled || microtuneNotes == nullptr || microtuneNumNotes == 0) {
+        const float semitoneFreq = (static_cast<float>(midiNote) - 69.0f) / 12.0f;
+        return refA4 * fast_powf(2.0f, semitoneFreq);
+    }
+
+    const int steps = static_cast<int>(microtuneNumNotes);
+    const int delta = midiNote - microtuneRootMidi;
+    int octave = delta / steps;
+    int degree = delta % steps;
+    if (degree < 0) {
+        degree += steps;
+        octave -= 1;
+    }
+
+    double periodRatio = sclNoteRatio(microtuneNotes[steps - 1]);
+    if (periodRatio <= 0.0) periodRatio = 2.0;
+
+    double degreeRatio = 1.0;
+    if (degree > 0) {
+        degreeRatio = sclNoteRatio(microtuneNotes[degree - 1]);
+        if (degreeRatio <= 0.0) degreeRatio = 1.0;
+    }
+
+    const float rootHz = refA4 * fast_powf(2.0f, (static_cast<float>(microtuneRootMidi) - 69.0f) / 12.0f);
+    const double ratio = std::pow(periodRatio, static_cast<double>(octave)) * degreeRatio;
+    return static_cast<float>(rootHz * ratio);
 }

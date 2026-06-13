@@ -5,6 +5,7 @@
 #include "ZDFFilter.h"              // Unified ZDF filter (SVF + Ladder models)
 #include "DecimatedDelay.h" // New decimated delay for lo-fi echo effects
 #include "PolyLofiParams.h" // Param enum, pitch track multipliers, string tables
+#include <distingnt/microtuning.h>
 #include <cmath>
 #include <algorithm>
 
@@ -98,6 +99,7 @@ public:
     // Oscillator parameters
     void setOscillatorParameters(int index, int waveform, float semitoneOffset, float fineOffset, float morph, float level);
     void setOscWavetable(int oscIdx, const int16_t* data, uint32_t numWaves, uint32_t waveLength);
+    void setMicrotuning(bool enabled, int rootMidiNote, const _NT_sclNote* notes, uint32_t numNotes);
 
     // Note lifecycle
     void noteOn(int midiNote, float vel);
@@ -116,6 +118,8 @@ public:
 
     // Voice state queries
     float getCurrentAmplitudeLevel() const;
+    /// Returns the computed oscillator frequency (Hz) set at last noteOn/updateOscFrequencies.
+    float getOscFrequency(int oscIdx) const { return (oscIdx >= 0 && oscIdx < NUM_OSC) ? currentFreq[oscIdx] : 0.0f; }
 
     // Audio processing
     void processBlock(float* out, int numSamples, const ModSlot* matrix);
@@ -221,6 +225,13 @@ private:
     float noteRandom = 0.0f;
     void renderStealTail();
     void updateOscFrequencies();
+    float noteToFrequencyHz(int midiNote) const;
+    static double sclNoteRatio(const _NT_sclNote& note);
+
+    bool microtuneEnabled = false;
+    int microtuneRootMidi = 69;
+    const _NT_sclNote* microtuneNotes = nullptr;
+    uint32_t microtuneNumNotes = 0;
 
     float currentFreq[NUM_OSC] = {440.0f, 440.0f, 440.0f};
     float targetFreq[NUM_OSC] = {440.0f, 440.0f, 440.0f};
