@@ -1,7 +1,7 @@
-# Cerberus Features
+# Nerberus Features
 
-Cerberus is a triple-band character processor for Disting NT, focused on punch, texture, and movement.
-This document describes the current implementation in `Cerberus.cpp`.
+Nerberus is a triple-band character processor for Disting NT, focused on punch, texture, and movement.
+This document describes the current implementation in `Nerberus.cpp`.
 
 ## High-Level Signal Flow
 

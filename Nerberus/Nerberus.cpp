@@ -97,7 +97,7 @@ struct BandSplitter {
     }
 };
 
-struct _CerberusAlgorithm_DTC {
+struct _NerberusAlgorithm_DTC {
     CompressedGritEngine engine;
     ZDFFilter filterL, filterR;
     ZDFFilter filterL2x, filterR2x;
@@ -206,9 +206,9 @@ struct _CerberusAlgorithm_DTC {
     float ringCarrierBuf[kBlockChunk];
 };
 
-struct _CerberusAlgorithm : public _NT_algorithm {
-    explicit _CerberusAlgorithm(_CerberusAlgorithm_DTC* dtc_) : dtc(dtc_) {}
-    _CerberusAlgorithm_DTC* dtc;
+struct _NerberusAlgorithm : public _NT_algorithm {
+    explicit _NerberusAlgorithm(_NerberusAlgorithm_DTC* dtc_) : dtc(dtc_) {}
+    _NerberusAlgorithm_DTC* dtc;
 };
 
 enum {
@@ -438,15 +438,15 @@ static inline const float* busPtr(const float* busFrames, int numFrames, int16_t
 
 static void calculateRequirements(_NT_algorithmRequirements& req, const int32_t*) {
     req.numParameters = kNumParams;
-    req.sram = sizeof(_CerberusAlgorithm);
+    req.sram = sizeof(_NerberusAlgorithm);
     req.dram = 0;
-    req.dtc = sizeof(_CerberusAlgorithm_DTC);
+    req.dtc = sizeof(_NerberusAlgorithm_DTC);
     req.itc = 0;
 }
 
 static _NT_algorithm* construct(const _NT_algorithmMemoryPtrs& ptrs, const _NT_algorithmRequirements&, const int32_t*) {
-    auto* dtc = new (ptrs.dtc) _CerberusAlgorithm_DTC();
-    auto* alg = new (ptrs.sram) _CerberusAlgorithm(dtc);
+    auto* dtc = new (ptrs.dtc) _NerberusAlgorithm_DTC();
+    auto* alg = new (ptrs.sram) _NerberusAlgorithm(dtc);
 
     const float fs = (float)NT_globals.sampleRate;
     dtc->sampleRate = fs;
@@ -519,7 +519,7 @@ static inline float shapedTransientGain(float transient, float attack, float sus
 }
 
 static void parameterChanged(_NT_algorithm* self, int p) {
-    auto* a = static_cast<_CerberusAlgorithm*>(self);
+    auto* a = static_cast<_NerberusAlgorithm*>(self);
     auto* dtc = a->dtc;
 
     switch (p) {
@@ -622,7 +622,7 @@ static void parameterChanged(_NT_algorithm* self, int p) {
 }
 
 static void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
-    auto* a = static_cast<_CerberusAlgorithm*>(self);
+    auto* a = static_cast<_NerberusAlgorithm*>(self);
     auto* dtc = a->dtc;
 
     const int numFrames = numFramesBy4 * 4;

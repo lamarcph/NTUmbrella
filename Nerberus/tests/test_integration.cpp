@@ -288,7 +288,7 @@ static RenderStats processLoopToWav(
 }
 
 TestResult test_plugin_loads() {
-    TEST_BEGIN("Cerberus plugin loads");
+    TEST_BEGIN("Nerberus plugin loads");
     PluginInstance plugin;
     ASSERT_TRUE(createPlugin(plugin), "plugin constructed");
     ASSERT_NOT_NULL(plugin.factory(), "factory available");
@@ -307,7 +307,7 @@ TestResult test_loop1_wav_loads() {
 }
 
 TestResult test_showcase_dry_passthrough_wav() {
-    TEST_BEGIN("Showcase: dry passthrough (writes bin/cerberus_loop_dry.wav)");
+    TEST_BEGIN("Showcase: dry passthrough (writes bin/Nerberus_loop_dry.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -316,7 +316,7 @@ TestResult test_showcase_dry_passthrough_wav() {
     setBaseRouting(plugin);
     plugin.setParameter(kParamMix, 0);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_loop_dry.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_loop_dry.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "dry left output has signal");
     ASSERT_GT(stats.peakR, 0.01f, "dry right output has signal");
     ASSERT_LT(stats.meanAbsDiffL, 1e-5f, "dry left remains unchanged");
@@ -325,7 +325,7 @@ TestResult test_showcase_dry_passthrough_wav() {
 }
 
 TestResult test_showcase_full_stack_wav() {
-    TEST_BEGIN("Showcase: full texture stack (writes bin/cerberus_loop_full_stack.wav)");
+    TEST_BEGIN("Showcase: full texture stack (writes bin/Nerberus_loop_full_stack.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -366,7 +366,7 @@ TestResult test_showcase_full_stack_wav() {
     plugin.setParameter(kParamMix, 850);
     plugin.setParameter(kParamOutput, 900);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_loop_full_stack.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_loop_full_stack.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "full stack left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "full stack right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "full stack changes left channel");
@@ -382,7 +382,7 @@ static void filterSweepHook(PluginInstance& plugin, int blockIndex, int totalBlo
 }
 
 TestResult test_showcase_filter_sweep_wav() {
-    TEST_BEGIN("Showcase: filter sweep (writes bin/cerberus_loop_filter_sweep.wav)");
+    TEST_BEGIN("Showcase: filter sweep (writes bin/Nerberus_loop_filter_sweep.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -403,7 +403,7 @@ TestResult test_showcase_filter_sweep_wav() {
     plugin.setParameter(kParamFilterDrive, 1000);
     plugin.setParameter(kParamMix, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_loop_filter_sweep.wav", 2, filterSweepHook);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_loop_filter_sweep.wav", 2, filterSweepHook);
     ASSERT_GT(stats.peakL, 0.01f, "filter sweep left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "filter sweep right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "filter sweep alters left channel");
@@ -412,7 +412,7 @@ TestResult test_showcase_filter_sweep_wav() {
 }
 
 TestResult test_showcase_spunk_hihat_wav() {
-    TEST_BEGIN("Showcase: spunk hi-hat chain (writes bin/cerberus_loop_spunk_hihat.wav)");
+    TEST_BEGIN("Showcase: spunk hi-hat chain (writes bin/Nerberus_loop_spunk_hihat.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -454,7 +454,7 @@ TestResult test_showcase_spunk_hihat_wav() {
     plugin.setParameter(kParamMix, 800);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_loop_spunk_hihat.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_loop_spunk_hihat.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "spunk chain left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "spunk chain right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "spunk chain alters left channel");
@@ -463,7 +463,7 @@ TestResult test_showcase_spunk_hihat_wav() {
 }
 
 TestResult test_transient_shaper_wav() {
-    TEST_BEGIN("Transient shaper: attack boost and tail tighten (writes bin/cerberus_loop_transient.wav)");
+    TEST_BEGIN("Transient shaper: attack boost and tail tighten (writes bin/Nerberus_loop_transient.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -502,7 +502,7 @@ TestResult test_transient_shaper_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_loop_transient.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_loop_transient.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "transient shaped left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "transient shaped right has signal");
     // With attack boost, peaks should be higher than dry — signal is meaningfully different
@@ -512,7 +512,7 @@ TestResult test_transient_shaper_wav() {
 }
 
 TestResult test_ring_modulator_wav() {
-    TEST_BEGIN("Ring modulator: metallic shimmer at three frequencies (writes bin/cerberus_loop_ringmod.wav)");
+    TEST_BEGIN("Ring modulator: metallic shimmer at three frequencies (writes bin/Nerberus_loop_ringmod.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -550,7 +550,7 @@ TestResult test_ring_modulator_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_loop_ringmod.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_loop_ringmod.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "ring mod left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "ring mod right has signal");
     // At 50% ring depth the output is meaningfully different from dry
@@ -560,7 +560,7 @@ TestResult test_ring_modulator_wav() {
 }
 
 TestResult test_cv_filter_freq_modulation() {
-    TEST_BEGIN("CV filter freq: rising CV sweeps filter open (writes bin/cerberus_cv_filter_freq.wav)");
+    TEST_BEGIN("CV filter freq: rising CV sweeps filter open (writes bin/Nerberus_cv_filter_freq.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -578,7 +578,7 @@ TestResult test_cv_filter_freq_modulation() {
     plugin.setParameter(kParamCVFilterFreqIn,    (int16_t)(CV_FILT_BUS + 1));
     plugin.setParameter(kParamCVFilterFreqDepth, 2000);  // 2.0 oct/V
 
-    WavWriter out("bin/cerberus_cv_filter_freq.wav", NtTestHarness::getSampleRate(), 2);
+    WavWriter out("bin/Nerberus_cv_filter_freq.wav", NtTestHarness::getSampleRate(), 2);
     ASSERT_TRUE(out.isOpen(), "output wav opened");
 
     std::vector<float> inBlkL(BLOCK, 0.0f);
@@ -626,7 +626,7 @@ TestResult test_cv_filter_freq_modulation() {
 }
 
 TestResult test_cv_ring_freq_modulation() {
-    TEST_BEGIN("CV ring freq: sine CV wobbles ring frequency (writes bin/cerberus_cv_ring_freq.wav)");
+    TEST_BEGIN("CV ring freq: sine CV wobbles ring frequency (writes bin/Nerberus_cv_ring_freq.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -643,7 +643,7 @@ TestResult test_cv_ring_freq_modulation() {
     plugin.setParameter(kParamCVRingFreqIn,    (int16_t)(CV_RING_BUS + 1));
     plugin.setParameter(kParamCVRingFreqDepth, 2000);  // 2.0 oct/V
 
-    WavWriter out("bin/cerberus_cv_ring_freq.wav", NtTestHarness::getSampleRate(), 2);
+    WavWriter out("bin/Nerberus_cv_ring_freq.wav", NtTestHarness::getSampleRate(), 2);
     ASSERT_TRUE(out.isOpen(), "output wav opened");
 
     std::vector<float> inBlkL(BLOCK, 0.0f);
@@ -692,7 +692,7 @@ TestResult test_cv_ring_freq_modulation() {
 }
 
 TestResult test_env_dest_drive_sensitivity_wav() {
-    TEST_BEGIN("Env destination: Drive via Env Sens (writes bin/cerberus_env_dest_drive.wav)");
+    TEST_BEGIN("Env destination: Drive via Env Sens (writes bin/Nerberus_env_dest_drive.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -714,7 +714,7 @@ TestResult test_env_dest_drive_sensitivity_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_env_dest_drive.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_env_dest_drive.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "env->drive left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "env->drive right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "env->drive changes left channel");
@@ -723,7 +723,7 @@ TestResult test_env_dest_drive_sensitivity_wav() {
 }
 
 TestResult test_env_dest_filter_cutoff_wav() {
-    TEST_BEGIN("Env destination: Filter Cutoff Env (writes bin/cerberus_env_dest_filter_cutoff.wav)");
+    TEST_BEGIN("Env destination: Filter Cutoff Env (writes bin/Nerberus_env_dest_filter_cutoff.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -750,7 +750,7 @@ TestResult test_env_dest_filter_cutoff_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_env_dest_filter_cutoff.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_env_dest_filter_cutoff.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "env->cutoff left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "env->cutoff right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "env->cutoff changes left channel");
@@ -759,7 +759,7 @@ TestResult test_env_dest_filter_cutoff_wav() {
 }
 
 TestResult test_env_dest_filter_drive_wav() {
-    TEST_BEGIN("Env destination: Filter Drive Env (writes bin/cerberus_env_dest_filter_drive.wav)");
+    TEST_BEGIN("Env destination: Filter Drive Env (writes bin/Nerberus_env_dest_filter_drive.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -786,7 +786,7 @@ TestResult test_env_dest_filter_drive_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_env_dest_filter_drive.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_env_dest_filter_drive.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "env->filter drive left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "env->filter drive right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "env->filter drive changes left channel");
@@ -795,7 +795,7 @@ TestResult test_env_dest_filter_drive_wav() {
 }
 
 TestResult test_env_dest_filter_res_wav() {
-    TEST_BEGIN("Env destination: Filter Res Env (writes bin/cerberus_env_dest_filter_res.wav)");
+    TEST_BEGIN("Env destination: Filter Res Env (writes bin/Nerberus_env_dest_filter_res.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -822,7 +822,7 @@ TestResult test_env_dest_filter_res_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_env_dest_filter_res.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_env_dest_filter_res.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "env->filter res left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "env->filter res right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "env->filter res changes left channel");
@@ -835,7 +835,7 @@ TestResult test_env_dest_filter_res_wav() {
 // -------------------------------------------------------------------------
 
 TestResult test_output_lp_cab_rolloff_wav() {
-    TEST_BEGIN("Output LP: cab rolloff at 6 kHz (writes bin/cerberus_output_lp.wav)");
+    TEST_BEGIN("Output LP: cab rolloff at 6 kHz (writes bin/Nerberus_output_lp.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -860,7 +860,7 @@ TestResult test_output_lp_cab_rolloff_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_output_lp.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_output_lp.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "output LP left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "output LP right has signal");
     // LP at 6 kHz on a heavily driven signal removes a significant amount of
@@ -871,7 +871,7 @@ TestResult test_output_lp_cab_rolloff_wav() {
 }
 
 TestResult test_output_soft_limiter_wav() {
-    TEST_BEGIN("Output soft limiter: saturating ceiling on hot signal (writes bin/cerberus_output_limiter.wav)");
+    TEST_BEGIN("Output soft limiter: saturating ceiling on hot signal (writes bin/Nerberus_output_limiter.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -894,7 +894,7 @@ TestResult test_output_soft_limiter_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_output_limiter.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_output_limiter.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "soft-limited left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "soft-limited right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "limiter changes left channel vs dry");
@@ -906,7 +906,7 @@ TestResult test_output_soft_limiter_wav() {
 }
 
 TestResult test_lo_asym_saturation_wav() {
-    TEST_BEGIN("Lo Asym: asymmetric low-band saturation (writes bin/cerberus_lo_asym.wav)");
+    TEST_BEGIN("Lo Asym: asymmetric low-band saturation (writes bin/Nerberus_lo_asym.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -935,7 +935,7 @@ TestResult test_lo_asym_saturation_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_lo_asym.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_lo_asym.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "Lo asym left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "Lo asym right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "Lo asym changes left channel");
@@ -948,7 +948,7 @@ TestResult test_lo_asym_saturation_wav() {
 // -------------------------------------------------------------------------
 
 TestResult test_input_hp_conditioning_wav() {
-    TEST_BEGIN("Input HP: sub removal before saturation (writes bin/cerberus_input_hp.wav)");
+    TEST_BEGIN("Input HP: sub removal before saturation (writes bin/Nerberus_input_hp.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -972,7 +972,7 @@ TestResult test_input_hp_conditioning_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_input_hp.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_input_hp.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "HP-conditioned left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "HP-conditioned right has signal");
     // At 300 Hz the removed sub-bass is significant — output must differ from input
@@ -986,7 +986,7 @@ TestResult test_input_hp_conditioning_wav() {
 // -------------------------------------------------------------------------
 
 TestResult test_dynamic_bias_wav() {
-    TEST_BEGIN("Dynamic bias: transient-driven even-order harmonics (writes bin/cerberus_dynamic_bias.wav)");
+    TEST_BEGIN("Dynamic bias: transient-driven even-order harmonics (writes bin/Nerberus_dynamic_bias.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -1017,7 +1017,7 @@ TestResult test_dynamic_bias_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_dynamic_bias.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_dynamic_bias.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "dynamic bias left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "dynamic bias right has signal");
     // Bias + grit saturation generates significant even-order content — output
@@ -1032,7 +1032,7 @@ TestResult test_dynamic_bias_wav() {
 // -------------------------------------------------------------------------
 
 TestResult test_classic_multiband_wav() {
-    TEST_BEGIN("Classic multiband: mono lows / glued mids / wide highs (writes bin/cerberus_loop_classic.wav)");
+    TEST_BEGIN("Classic multiband: mono lows / glued mids / wide highs (writes bin/Nerberus_loop_classic.wav)");
     LoadedWav wav;
     ASSERT_TRUE(loadWav("testWav/loop1.wav", wav), "loaded loop1.wav");
 
@@ -1073,7 +1073,7 @@ TestResult test_classic_multiband_wav() {
     plugin.setParameter(kParamMix, 1000);
     plugin.setParameter(kParamOutput, 1000);
 
-    RenderStats stats = processLoopToWav(plugin, wav, "bin/cerberus_loop_classic.wav", 2);
+    RenderStats stats = processLoopToWav(plugin, wav, "bin/Nerberus_loop_classic.wav", 2);
     ASSERT_GT(stats.peakL, 0.01f, "classic left has signal");
     ASSERT_GT(stats.peakR, 0.01f, "classic right has signal");
     ASSERT_GT(stats.meanAbsDiffL, 0.001f, "classic processing changes left channel");

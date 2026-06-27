@@ -5,7 +5,7 @@ It is designed to quickly move from clean glue to aggressive, animated character
 
 ## What It Does
 
-Cerberus splits audio into low, mid, and high bands, processes each band independently, then recombines and optionally filters the result.
+Nerberus splits audio into low, mid, and high bands, processes each band independently, then recombines and optionally filters the result.
 
 Per band, you can shape:
 - dynamics (`Press`)
@@ -165,7 +165,7 @@ Destination controls:
 
 ## Build
 
-From the Cerberus folder:
+From the Nerberus folder:
 
 ```bash
 make
