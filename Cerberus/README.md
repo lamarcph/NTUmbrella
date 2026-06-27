@@ -1,6 +1,6 @@
-# Cerberus
+# Nerberus
 
-Cerberus is a triple-band saturation and texture effect for Disting NT.
+Nerberus is a triple-band saturation and texture effect for Disting NT.
 It is designed to quickly move from clean glue to aggressive, animated character.
 
 ## What It Does

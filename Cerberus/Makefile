@@ -7,9 +7,9 @@ HEADERS_PATH := ../LofiParts
 TARGET_TOOLCHAIN := arm-none-eabi-c++
 TARGET_CPPFLAGS := -std=c++17 -mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -fno-rtti -fno-exceptions -Os -fPIC -Wall
 
-EMBEDDED_SRCS := Cerberus.cpp
+EMBEDDED_SRCS := Nerberus.cpp
 EMBEDDED_OBJS := $(patsubst %.cpp,plugins/%.tmp.o,$(EMBEDDED_SRCS))
-PLUGIN_OBJ    := plugins/Cerberus.o
+PLUGIN_OBJ    := plugins/Nerberus.o
 
 all: $(PLUGIN_OBJ)
 
@@ -26,7 +26,7 @@ clean:
 	@echo "Cleaning host test executable..."
 	rm -rf $(TEST_BUILD_DIR)
 
-PLUGIN_SRCS   := Cerberus.cpp
+PLUGIN_SRCS   := Nerberus.cpp
 TEST_SRCS     := tests/test_integration.cpp
 EXTRA_INCLUDE := -I../LofiParts
 include ../test_harness/test_harness.mk

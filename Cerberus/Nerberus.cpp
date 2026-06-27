@@ -1004,7 +1004,7 @@ static void step(_NT_algorithm* self, float* busFrames, int numFramesBy4) {
 
 static const _NT_factory kFactory = {
     .guid = NT_MULTICHAR('C', 'R', 'B', 'R'),
-    .name = "Cerberus",
+    .name = "Nerberus",
     .description = "Triple-band compressed grit and drive",
     .numSpecifications = 0,
     .specifications = nullptr,

@@ -11,7 +11,7 @@ Eurorack module, built against the
 |--------|-------------|
 | **[PolyLofi](PolyLofi/)** | Polyphonic synthesizer — up to 12 voices, 3 oscillators, 4 filter models, 3 envelopes, 3 LFOs, modulation matrix, per-voice delay, and a built-in preset system. |
 | **[Oneiroi](Oneiroi/)** | Port of the Oneiroi ambient texture processor — oscillators, looper, filter, resonator, echo, and ambience in a single algorithm. |
-| **[Cerberus](Cerberus/)** | Triple-band saturation and texture processor — independent low/mid/high dynamics and grit, plus filter, crush/decimation, transient shaping, ring modulation, and CV control. |
+| **[Nerberus](Cerberus/)** | Triple-band saturation and texture processor — independent low/mid/high dynamics and grit, plus filter, crush/decimation, transient shaping, ring modulation, and CV control. |
 | **[NoiseBouquet](NoiseBouquet/)** | Community Disting NT port of the Noise Plethora concept — 33 noise/cluster/effects algorithms selectable by bank/program in one plugin. |
 | **[LofiOsc](LofiOsc/)** | 9 detunable lo-fi oscillators with selectable waveforms, instrument-style detune models, V/Oct, FM, and morph modulation. Aliasing is intentional. |
 | **[LofiParts](LofiParts/)** | Shared DSP library — ZDF filters, envelopes, LFOs, oscillators, delay, voice allocation, wavetable generation, and math utilities used across the above plugins. |
