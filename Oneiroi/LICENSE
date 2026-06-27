@@ -1,0 +1,23 @@
+SPDX-License-Identifier: GPL-3.0-or-later
+
+Oneiroi NT is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+Oneiroi NT is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+The full license text is available at:
+    https://www.gnu.org/licenses/gpl-3.0.html
+
+A verbatim copy of the license is also available in this repository at:
+    ../NoiseBouquet/LICENSE
+
+Note on upstream components
+----------------------------
+The upstream sources vendored under include/Oneiroi/ carry their own
+copyright notices and license terms as listed in NOTICE and in the files
+include/Oneiroi/LICENSE and include/Oneiroi/LICENSE_VCV.md.

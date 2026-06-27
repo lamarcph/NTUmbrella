@@ -1,6 +1,16 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2024-2026 Philippe Lamarche — Disting NT adaptation of Befaco Oneiroi
+//
+// This file is the NT glue layer that maps the Oneiroi DSP engine
+// (Befaco / Roberto Noris) and OWL platform utilities (Rebel Technology)
+// onto the Expert Sleepers Disting NT plugin API.
+//
+// See NOTICE for full upstream attribution and LICENSE for terms.
+
 #include <math.h>
 #include <new>
 #include <distingnt/api.h>
+#include <distingnt/wav.h>
 #include <Oneiroi/Oneiroi.h>
 #include <Oneiroi/SampleBuffer.hpp>
 
@@ -73,6 +83,9 @@ enum
 	kParamActionRandomize,
     kParamActionUndo,
     kParamActionRedo,
+    kParamRandScope,
+    kParamLooperFolder,
+    kParamLooperFile,
 };
 
 // Define the range of parameters to randomize/undo (skipping Inputs/Outputs/Actions)
@@ -91,9 +104,19 @@ struct _OneiroiAlgorithm_DTC
 	float semi= 0.f, fine=0.f, v8c = 0.f, prevClockValue = 0.f, pitchInput=0.f;
 	uint8_t dtcMemory[_allocatableDTCMemorySize];
 	int16_t undoStack[UNDO_STACK_SIZE][NUM_UNDOABLE_PARAMS];
-    int     undoHead = 0;       // Index where the NEXT state will be written
-    int     undoSize = 0;       // Number of valid undo states available
-    int     undoCurrentIndex = 0; // The index of the currently loaded stat
+    // Invariant: undoStack[undoCursor] always matches the live parameter values.
+    // undoCursor == -1 means no history exists yet.
+    int     undoCount  = 0;   // number of valid snapshots (0..UNDO_STACK_SIZE)
+    int     undoCursor = -1;  // index of the currently applied snapshot
+
+    // Looper file loading
+    _NT_wavRequest wavReq     = {};    // must persist until callback fires
+    bool     wavLoading       = false;
+    uint32_t wavFileFrames    = 0;     // frames requested (known before callback)
+    bool     wavPendingSet    = false; // step() reads this to apply length param
+    int16_t  wavPendingLen    = 0;     // pending kParamlooperLength value
+    int      looperFolder     = 0;
+    int      looperFile       = 0;
 };
 
 struct _OneiroiAlgorithm : public _NT_algorithm
@@ -121,6 +144,10 @@ static char const * const enumStringsFilterPos[] = {
 
 static char const * const enumStringsSSWT[] = {
 	 "SuperSaw", "WaveTable"
+};
+
+static const char * const enumStringsRandScope[] = {
+    "All", "Oscillator", "Filter", "Looper", "Resonator", "Echo", "Ambience", "Mod", nullptr
 };
 
 static const _NT_parameter	parameters[] = {
@@ -188,20 +215,23 @@ static const _NT_parameter	parameters[] = {
     { .name = "Mod Speed", .min = 0, .max = 1000, .def = 500, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
     { .name = "Mod Level", .min = 0, .max = 1000, .def = 250, .unit = kNT_unitNone, .scaling = kNT_scaling1000, .enumStrings = NULL },
 
-	{ .name = "Randomize", .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
-    { .name = "Undo",      .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
-    { .name = "Redo",      .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
-};  
+	{ .name = "Randomize",  .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
+    { .name = "Undo",       .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
+    { .name = "Redo",       .min = 0, .max = 1, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsTrigger },
+    { .name = "Rand Scope", .min = 0, .max = 7, .def = 0, .unit = kNT_unitEnum, .scaling = 0, .enumStrings = enumStringsRandScope },
+    { .name = "Looper Folder", .min = 0, .max = 255, .def = 0, .unit = kNT_unitHasStrings, .scaling = 0, .enumStrings = NULL },
+    { .name = "Looper File",   .min = 0, .max = 255, .def = 0, .unit = kNT_unitConfirm,    .scaling = 0, .enumStrings = NULL },
+};
 
 
 static const uint8_t page1[] = { kParamOscSemi,	kParamOscFine,kParamOscV8c, kParamOscDetune, kParamOscPitchModAmount, kParamOscUnison, kParamOscDetuneModAmount, kParamSSOscVol, kParamSinOscVol, kParamSSWT};
 static const uint8_t page2[] = {kParamfilterMode, kParamfilterCutoff, kParamfilterCutoffModAmount, kParamfilterResonance, kParamfilterResonanceModAmount, kParamfilterPosition, kParamfilterVol};
-static const uint8_t page3[] = { kParamlooperVol,kParamlooperSos, kParamlooperFilter, kParamlooperSpeed, kParamlooperSpeedModAmount, kParamlooperStart, kParamlooperStartModAmount, kParamlooperLength, kParamlooperLengthModAmount, kParamlooperRecording, kParamlooperResampling, kParamlooperClear};
+static const uint8_t page3[] = { kParamlooperVol, kParamlooperSos, kParamlooperFilter, kParamlooperSpeed, kParamlooperSpeedModAmount, kParamlooperStart, kParamlooperStartModAmount, kParamlooperLength, kParamlooperLengthModAmount, kParamlooperRecording, kParamlooperResampling, kParamlooperClear, kParamLooperFolder, kParamLooperFile};
 static const uint8_t page4[] = { kParamresonatorVol, kParamresonatorTune, kParamresonatorFeedback, kParamresonatorDissonance};
 static const uint8_t page5[] = { kParamechoVol, kParamechoDensity, kParamechoRepeats, kParamechoFilter };
 static const uint8_t page6[] = { kParamambienceVol, kParamambienceDecay, kParamambienceSpacetime, kParamambienceAutoPan };
 static const uint8_t page7[] = { kParammodType, kParammodSpeed, kParammodLevel};
-static const uint8_t page8[] = { kParamActionRandomize, kParamActionUndo, kParamActionRedo};
+static const uint8_t page8[] = { kParamRandScope, kParamActionRandomize, kParamActionUndo, kParamActionRedo};
 static const uint8_t page9[] = { kParamLeftOutput, kParamLeftOutputMode, kParamRightOutput, kParamRightOutputMode, kParamLeftInput, kParamRightInput, kParamClockInput, kParamPitchInput, kParamInputLevel, kParamOutputLevel };
 
 
@@ -224,79 +254,131 @@ static const _NT_parameterPages parameterPages = {
 };
 
 
-// Helper: Get random value based on parameter definition
-int16_t getRandomValue(const _NT_parameter& p) {
-    if (p.unit == kNT_unitEnum) {
-        // For enums, pick a random index
-        return p.min + (rand() % (p.max - p.min + 1));
-    }
-    // For others, pick a random value in range
-    // You might want to constrain this to avoid extreme values
-    return p.min + (rand() % (p.max - p.min + 1));
+// xorshift32 RNG — avoids stdlib rand() which is always seeded with 1 on bare metal.
+// The state advances across calls so each press of Randomize gives a different result.
+static uint32_t _ntRandState = 1337u;
+static inline uint32_t ntRand() {
+    _ntRandState ^= _ntRandState << 13;
+    _ntRandState ^= _ntRandState >> 17;
+    _ntRandState ^= _ntRandState << 5;
+    return _ntRandState;
 }
 
-// Helper: Save current state to the undo stack
-void saveCurrentState( _OneiroiAlgorithm* self ) {
-    _OneiroiAlgorithm_DTC* dtc = self->dtc;
-    
-    // If we are in the middle of the stack (Undo was used), invalidate the "future" (Redo)
-    if (dtc->undoCurrentIndex != dtc->undoHead) {
-        dtc->undoHead = dtc->undoCurrentIndex;
-        dtc->undoSize = dtc->undoCurrentIndex; // Simplified stack logic
-    }
+// Randomization scope: which section of parameters to randomize.
+// Scope 0 (All) randomizes everything; scopes 1–7 target a single section.
+static const uint8_t rndGroupOsc[]      = { kParamOscSemi, kParamOscFine, kParamOscV8c, kParamOscDetune, kParamOscPitchModAmount, kParamOscUnison, kParamOscDetuneModAmount, kParamSinOscVol, kParamSSOscVol, kParamSSWT };
+static const uint8_t rndGroupFilter[]   = { kParamfilterVol, kParamfilterMode, kParamfilterCutoff, kParamfilterCutoffModAmount, kParamfilterResonance, kParamfilterResonanceModAmount, kParamfilterPosition };
+static const uint8_t rndGroupLooper[]   = { kParamlooperVol, kParamlooperSos, kParamlooperFilter, kParamlooperSpeed, kParamlooperSpeedModAmount, kParamlooperStart, kParamlooperStartModAmount, kParamlooperLength, kParamlooperLengthModAmount };
+static const uint8_t rndGroupResonator[] = { kParamresonatorVol, kParamresonatorTune, kParamresonatorFeedback, kParamresonatorDissonance };
+static const uint8_t rndGroupEcho[]     = { kParamechoVol, kParamechoDensity, kParamechoRepeats, kParamechoFilter };
+static const uint8_t rndGroupAmbience[] = { kParamambienceVol, kParamambienceDecay, kParamambienceSpacetime, kParamambienceAutoPan };
+static const uint8_t rndGroupMod[]      = { kParammodType, kParammodSpeed, kParammodLevel };
 
-    // Save current values
-    int writeIdx = dtc->undoHead;
-    for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i) {
-        int paramIdx = PARAM_RND_START + i;
-        dtc->undoStack[writeIdx][i] = self->v[paramIdx];
-    }
+struct _RndGroup { const uint8_t* params; int count; };
+static const _RndGroup rndGroups[] = {
+    { nullptr,          0  },  // 0: All
+    { rndGroupOsc,      10 },  // 1: Oscillator
+    { rndGroupFilter,    7 },  // 2: Filter
+    { rndGroupLooper,    9 },  // 3: Looper
+    { rndGroupResonator, 4 },  // 4: Resonator
+    { rndGroupEcho,      4 },  // 5: Echo
+    { rndGroupAmbience,  4 },  // 6: Ambience
+    { rndGroupMod,       3 },  // 7: Mod
+};
 
-    // Advance head
-    dtc->undoHead = (dtc->undoHead + 1) % UNDO_STACK_SIZE;
-    // Update current index to point to the new empty slot (or the one we just wrote, depending on logic)
-    // Here: undoCurrentIndex points to the state we are *currently looking at*. 
-    // Actually, it's easier if undoHead points to the *next empty* slot.
-    // Let's say undoCurrentIndex is the index of the *last saved state*.
-    
-    dtc->undoCurrentIndex = writeIdx;
-    
-    if (dtc->undoSize < UNDO_STACK_SIZE) dtc->undoSize++;
+// Returns true if paramIdx should be randomized for the given scope.
+// Always excludes looper operational toggles regardless of scope.
+static inline bool shouldRandomize(int paramIdx, int scope) {
+    if (paramIdx == kParamlooperRecording ||
+        paramIdx == kParamlooperResampling ||
+        paramIdx == kParamlooperClear) return false;
+    if (scope <= 0) return true; // All
+    const _RndGroup& g = rndGroups[scope];
+    for (int j = 0; j < g.count; ++j)
+        if (g.params[j] == (uint8_t)paramIdx) return true;
+    return false;
 }
 
-// Helper: Load state from stack and update UI
-void applyState( _OneiroiAlgorithm* self, int stackIndex ) {
-    _OneiroiAlgorithm_DTC* dtc = self->dtc;
+static inline int16_t ntGetRandomValue(const _NT_parameter& p) {
+    int32_t range = (int32_t)p.max - (int32_t)p.min + 1;
+    return (int16_t)((int32_t)p.min + (int32_t)(ntRand() % (uint32_t)range));
+}
+
+// Apply the snapshot at undoStack[idx] back to the live parameters.
+// Uses NT_setParameterFromAudio as required when called from parameterChanged().
+static void applySnapshot(_OneiroiAlgorithm* self, int idx) {
     int32_t algoIndex = NT_algorithmIndex(self);
-
     for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i) {
         int paramIdx = PARAM_RND_START + i;
-        int16_t storedVal = dtc->undoStack[stackIndex][i];
-        
-        // Only update if changed to minimize message traffic
-        if (self->v[paramIdx] != storedVal) {
-             NT_setParameterFromUi( algoIndex, paramIdx + NT_parameterOffset(), storedVal );
+        int16_t stored = self->dtc->undoStack[idx][i];
+        if (self->v[paramIdx] != stored)
+            NT_setParameterFromAudio(algoIndex, paramIdx + NT_parameterOffset(), stored);
+    }
+}
+
+// Save self->v[] into a new snapshot at the top of the ring buffer.
+// Evicts the oldest entry when the buffer is full.
+// Returns the index where the snapshot was written.
+static int pushSnapshot(_OneiroiAlgorithm* self) {
+    _OneiroiAlgorithm_DTC* dtc = self->dtc;
+    if (dtc->undoCount == UNDO_STACK_SIZE) {
+        memmove(dtc->undoStack[0], dtc->undoStack[1],
+                (UNDO_STACK_SIZE - 1) * sizeof(dtc->undoStack[0]));
+        dtc->undoCount--;
+        if (dtc->undoCursor > 0) dtc->undoCursor--;
+    }
+    int writeIdx = dtc->undoCount;
+    for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i)
+        dtc->undoStack[writeIdx][i] = self->v[PARAM_RND_START + i];
+    dtc->undoCount++;
+    return writeIdx;
+}
+
+// ---------------------------------------------------------------------------
+// Looper file load callback
+// Called from the SD card thread after NT_readSampleFrames() completes.
+// All heavy work (tiling, copy) is done here so step() only sets one param.
+// ---------------------------------------------------------------------------
+static void wavLoadCallback(void* data, bool success) {
+    auto* dtc = static_cast<_OneiroiAlgorithm_DTC*>(data);
+    dtc->wavLoading = false;
+    if (!success || dtc->wavFileFrames == 0) return;
+
+    FloatArray* buf = dtc->Oneiroi_->GetLooperFloatArray();
+    float* bufData  = buf->getData();
+    uint32_t fileFrames = dtc->wavFileFrames;
+
+    // Tile L channel to fill the full channel buffer if file is shorter than ~5.46 s.
+    if (fileFrames < (uint32_t)kLooperChannelBufferLength) {
+        uint32_t pos = fileFrames;
+        while (pos < (uint32_t)kLooperChannelBufferLength) {
+            uint32_t toCopy = (uint32_t)kLooperChannelBufferLength - pos;
+            if (toCopy > fileFrames) toCopy = fileFrames;
+            memcpy(bufData + pos, bufData, toCopy * sizeof(float));
+            pos += toCopy;
         }
     }
-    dtc->undoCurrentIndex = stackIndex;
+
+    // Mirror L to R so the looper plays the file on both channels.
+    memcpy(bufData + kLooperChannelBufferLength, bufData, kLooperChannelBufferLength * sizeof(float));
+
+    // Compute the looper length parameter value that best matches the file duration.
+    // lengthLUT_ maps 0..1 → kLooperLoopLengthMin..kLooperChannelBufferLength using x^3 (expo y=3).
+    // Inverse: pos = cbrt((fileSamples - min) / (max - min))
+    const float fmin = (float)kLooperLoopLengthMin;
+    const float fmax = (float)kLooperChannelBufferLength;
+    float t = ((float)fileFrames - fmin) / (fmax - fmin);
+    if (t < 0.f) t = 0.f;
+    if (t > 1.f) t = 1.f;
+    int16_t pval = (int16_t)(cbrtf(t) * 1000.f + 0.5f);
+    if (pval < 0) pval = 0;
+    if (pval > 1000) pval = 1000;
+
+    // Defer the parameter set to step() — NT_setParameterFromAudio cannot be
+    // called safely from an SD card callback thread.
+    dtc->wavPendingLen = pval;
+    dtc->wavPendingSet = true;
 }
-
-void performRandomize( _OneiroiAlgorithm* self ) {
-    // 1. Save current state first
-    //saveCurrentState(self);
-
-    // 2. Randomize
-    int32_t algoIndex = NT_algorithmIndex(self);
-    for (int p = PARAM_RND_START; p <= PARAM_RND_END; ++p) {
-        // Skip if you want to protect certain params (like Vol/Pitch)
-        // if (p == kParamOscSemi) continue; 
-        
-        const _NT_parameter& paramDef = self->parameters[p];
-        int16_t newVal = getRandomValue(paramDef);
-        NT_setParameterFromUi( algoIndex, p + NT_parameterOffset(), newVal );
-    }
-}
-
 
 void calculateRequirements( _NT_algorithmRequirements& req, const int32_t* specifications )
 {
@@ -396,10 +478,9 @@ _NT_algorithm*	construct( const _NT_algorithmMemoryPtrs& ptrs, const _NT_algorit
     alg->dtc->patchState.speedZero = 0.f;
 	alg->dtc->patchState.clockSource = ClockSource::CLOCK_SOURCE_INTERNAL;
 
-	// Initialize undo stack variables
-	alg->dtc->undoHead = 0;
-    alg->dtc->undoSize = 0;
-    alg->dtc->undoCurrentIndex = -1; // Indicates no history yet
+	// Initialize undo/redo history
+	alg->dtc->undoCount  = 0;
+    alg->dtc->undoCursor = -1;
     
 	return alg;
 }
@@ -408,7 +489,15 @@ void step( _NT_algorithm* self, float* busFrames, int numFramesBy4 )
 {
 	_OneiroiAlgorithm* pThis = (_OneiroiAlgorithm*)self;
 	_OneiroiAlgorithm_DTC* dtc = pThis->dtc;
-	
+
+	// Apply deferred looper length parameter (set by wavLoadCallback on SD thread)
+	if (dtc->wavPendingSet) {
+		dtc->wavPendingSet = false;
+		NT_setParameterFromAudio(NT_algorithmIndex(self),
+		                         kParamlooperLength + NT_parameterOffset(),
+		                         dtc->wavPendingLen);
+	}
+
 	int numFrames = numFramesBy4 * 4;
 	float* outL = busFrames + ( pThis->v[kParamLeftOutput] - 1 ) * numFrames;
 	float* outR = busFrames + ( pThis->v[kParamRightOutput] - 1 ) * numFrames;
@@ -489,60 +578,70 @@ void parameterChanged( _NT_algorithm* self, int p )
 
     // --- Custom Action Handling ---
     if (p == kParamActionRandomize) {
-        if (pThis->v[p] > 0) { // Triggered (Value 1)
-            // If stack is empty, save the *initial* state of the module first
-            if (dtc->undoCurrentIndex == -1) {
-                // Initialize head/current to 0 and save
-                dtc->undoHead = 0;
-                dtc->undoCurrentIndex = 0;
-                // Manually save current v to slot 0
-                for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i) {
-                     dtc->undoStack[0][i] = pThis->v[PARAM_RND_START + i];
-                }
-                dtc->undoHead = 1;
-                dtc->undoSize = 1;
+        if (pThis->v[p] > 0) {
+            // Truncate any redo states above the cursor (branching history model)
+            if (dtc->undoCursor >= 0 && dtc->undoCursor < dtc->undoCount - 1)
+                dtc->undoCount = dtc->undoCursor + 1;
+
+            // On the very first Randomize there is no snapshot yet: save the
+            // initial (pre-randomize) state so it is reachable by Undo.
+            if (dtc->undoCursor < 0) {
+                int preIdx = pushSnapshot(pThis);
+                dtc->undoCursor = preIdx;
             }
+            // If cursor is already at the top, the invariant guarantees stack[cursor]
+            // already holds the current state — no extra push needed.
 
-            performRandomize(pThis);
+            // Evict oldest entry if ring buffer is full, then claim the write slot.
+            if (dtc->undoCount == UNDO_STACK_SIZE) {
+                memmove(dtc->undoStack[0], dtc->undoStack[1],
+                        (UNDO_STACK_SIZE - 1) * sizeof(dtc->undoStack[0]));
+                dtc->undoCount--;
+                if (dtc->undoCursor > 0) dtc->undoCursor--;
+            }
+            int postIdx = dtc->undoCount;
 
-            // Reset button to 0 (Idle)
-            NT_setParameterFromUi( algoIndex,p + NT_parameterOffset(), 0 );
+            // Generate random values, write them into the post-randomize snapshot
+            // and fire the audio-side updates in a single pass.
+            // We cannot call pushSnapshot() after NT_setParameterFromAudio() because
+            // those updates are deferred — pThis->v[] won't reflect them yet, so
+            // reading it afterwards would capture stale (pre-randomize) values.
+            int scope = pThis->v[kParamRandScope];
+            for (int i = 0; i < NUM_UNDOABLE_PARAMS; ++i) {
+                int pidx = PARAM_RND_START + i;
+                int16_t rv;
+                if (shouldRandomize(pidx, scope)) {
+                    rv = ntGetRandomValue(parameters[pidx]);
+                    NT_setParameterFromAudio(algoIndex, pidx + NT_parameterOffset(), rv);
+                } else {
+                    rv = pThis->v[pidx]; // preserve operational params as-is
+                }
+                dtc->undoStack[postIdx][i] = rv;
+            }
+            dtc->undoCount++;
+            dtc->undoCursor = postIdx;
+
+            NT_setParameterFromAudio(algoIndex, p + NT_parameterOffset(), 0);
         }
         return;
     }
     else if (p == kParamActionUndo) {
         if (pThis->v[p] > 0) {
-            // Check if we can Undo
-            if (dtc->undoCurrentIndex > 0) {
-                // Determine previous index (simple linear or circular logic)
-                // Using circular logic from previous example:
-                int prevIndex = (dtc->undoCurrentIndex - 1 + UNDO_STACK_SIZE) % UNDO_STACK_SIZE;
-                
-                // Safety check against wrapping around to invalid data if not full
-                if (dtc->undoSize < UNDO_STACK_SIZE && prevIndex > dtc->undoCurrentIndex) {
-                     // logic error or empty, do nothing
-                } else {
-                     applyState(pThis, prevIndex);
-                }
+            if (dtc->undoCursor > 0) {
+                dtc->undoCursor--;
+                applySnapshot(pThis, dtc->undoCursor);
             }
-            NT_setParameterFromUi( algoIndex,p + NT_parameterOffset(), 0 );
+            NT_setParameterFromAudio(algoIndex, p + NT_parameterOffset(), 0);
         }
         return;
     }
     else if (p == kParamActionRedo) {
         if (pThis->v[p] > 0) {
-            // Check if we can Redo (next index exists and is valid)
-            int nextIndex = (dtc->undoCurrentIndex + 1) % UNDO_STACK_SIZE;
-            
-            // We can only redo if nextIndex is logically "ahead" and valid
-            // In a simple stack, redo is possible if undoCurrentIndex < (head - 1)
-            // This circular buffer logic needs to match exactly how you increment head.
-            // For simplicity, if we are not at the head-1, we can go forward.
-            
-            if (nextIndex != dtc->undoHead) { 
-                applyState(pThis, nextIndex);
+            if (dtc->undoCursor >= 0 && dtc->undoCursor < dtc->undoCount - 1) {
+                dtc->undoCursor++;
+                applySnapshot(pThis, dtc->undoCursor);
             }
-            NT_setParameterFromUi( algoIndex,p + NT_parameterOffset(), 0 );
+            NT_setParameterFromAudio(algoIndex, p + NT_parameterOffset(), 0);
         }
         return;
     }
@@ -672,7 +771,38 @@ void parameterChanged( _NT_algorithm* self, int p )
 		patchState.clearLooperFlag = pThis->v[p] > 0.f ? 1.f : 0.f;  // Convert enum to binary
 		break;
 
-    case kParamresonatorVol:
+    case kParamLooperFolder:
+        dtc->looperFolder = pThis->v[p];
+        break;
+
+    case kParamLooperFile: {
+        dtc->looperFile = pThis->v[p];
+        int fileVal = pThis->v[p];
+        if (fileVal > 0 && !dtc->wavLoading && NT_isSdCardMounted()) {
+            _NT_wavInfo info;
+            NT_getSampleFileInfo((uint32_t)dtc->looperFolder, (uint32_t)(fileVal - 1), info);
+            if (info.numFrames > 0) {
+                uint32_t frames = info.numFrames;
+                if (frames > (uint32_t)kLooperChannelBufferLength)
+                    frames = (uint32_t)kLooperChannelBufferLength;
+                FloatArray* buf = dtc->Oneiroi_->GetLooperFloatArray();
+                dtc->wavReq.folder      = (uint32_t)dtc->looperFolder;
+                dtc->wavReq.sample      = (uint32_t)(fileVal - 1);
+                dtc->wavReq.dst         = buf->getData();
+                dtc->wavReq.numFrames   = frames;
+                dtc->wavReq.startOffset = 0;
+                dtc->wavReq.channels    = kNT_WavMono;
+                dtc->wavReq.bits        = kNT_WavBits32;
+                dtc->wavReq.progress    = kNT_WavProgress;
+                dtc->wavReq.callback    = wavLoadCallback;
+                dtc->wavReq.callbackData = dtc;
+                dtc->wavFileFrames = frames;
+                if (NT_readSampleFrames(dtc->wavReq))
+                    dtc->wavLoading = true;
+            }
+        }
+        break;
+    }
 		patchCtrls.resonatorVol = MapExpo(pThis->v[p]/1000.f);
 		break;
 
@@ -764,6 +894,45 @@ bool	draw( _NT_algorithm* self )
 	return false;
 }
 
+// ---------------------------------------------------------------------------
+// parameterString — display names for kNT_unitHasStrings parameters.
+// ---------------------------------------------------------------------------
+static int parameterString(_NT_algorithm* self, int p, int v, char* buff) {
+    _OneiroiAlgorithm* pThis = (_OneiroiAlgorithm*)self;
+    int len = 0;
+    switch (p) {
+    case kParamLooperFolder: {
+        _NT_wavFolderInfo info;
+        NT_getSampleFolderInfo((uint32_t)v, info);
+        if (info.name) {
+            strncpy(buff, info.name, kNT_parameterStringSize - 1);
+            buff[kNT_parameterStringSize - 1] = '\0';
+            len = strlen(buff);
+        }
+        break;
+    }
+    case kParamLooperFile: {
+        if (v == 0) {
+            strncpy(buff, "None", kNT_parameterStringSize - 1);
+            buff[kNT_parameterStringSize - 1] = '\0';
+            len = strlen(buff);
+        } else {
+            _NT_wavInfo info;
+            NT_getSampleFileInfo((uint32_t)pThis->dtc->looperFolder, (uint32_t)(v - 1), info);
+            if (info.name) {
+                strncpy(buff, info.name, kNT_parameterStringSize - 1);
+                buff[kNT_parameterStringSize - 1] = '\0';
+                len = strlen(buff);
+            }
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return len;
+}
+
 static const _NT_factory factory = 
 {
 	.guid = NT_MULTICHAR( 'B', 'o', 'O', 'I' ),
@@ -777,6 +946,7 @@ static const _NT_factory factory =
 	.step = step,
 	.draw = draw,
 	.midiMessage = NULL,
+	.parameterString = parameterString,
 };
 
 uintptr_t pluginEntry( _NT_selector selector, uint32_t data )

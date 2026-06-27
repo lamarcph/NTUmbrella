@@ -1,0 +1,55 @@
+Oneiroi NT — Notices and Attributions
+======================================
+
+Oneiroi NT is a port of Befaco's Oneiroi patch to the Expert Sleepers
+Disting NT module format.  It is distributed under GPL-3.0-or-later
+(see LICENSE).
+
+The following components are vendored or derived from upstream projects.
+Their original copyright holders remain the authors of their respective
+contributions; see each section for details.
+
+
+1. Befaco Oneiroi
+-----------------
+Files:    include/Oneiroi/Oneiroi.h, Filter.h, Looper.h, LooperBuffer.h,
+          Echo.h, Resonator.h, Ambience.h, DjFilter.h, Modulation.h,
+          Limiter.h, Clock.h, ChaosNoise.h, LorenzAttractor.h,
+          MorphingOscillator.h, StereoSineOscillator.h, StereoSuperSaw.h,
+          StereoWaveTableOscillator.h, SampleOscillator.h,
+          WaveTableBuffer.h, Compressor.h, Commons.h, and related
+          DSP engine files.
+Source:   https://github.com/Befaco/Oneiroi
+Authors:  Roberto Noris (hirnlego), Ewan Hemingway (hemmer),
+          and contributors.
+License:  GNU General Public License v3.0-or-later
+          (see include/Oneiroi/LICENSE).
+          A separate commercial license exists for VCV-specific use
+          (see include/Oneiroi/LICENSE_VCV.md).
+
+
+2. Rebel Technology OWL Platform (OwlProgram)
+----------------------------------------------
+Files:    include/Oneiroi/basicmaths.h, FloatArray.h, ComplexFloatArray.h,
+          SimpleArray.h, AudioBuffer.h, SampleBuffer.hpp,
+          SignalProcessor.h, SignalGenerator.h,
+          BiquadFilter.h, FirFilter.h, StateVariableFilter.h,
+          DcBlockingFilter.h, Interpolator.h,
+          CircularBuffer.h, InterpolatingCircularBuffer.h,
+          CrossFadingCircularBuffer.h,
+          DelayLine.h, DelayProcessor.h,
+          Envelope.h, EnvFollower.h, EnvelopeFollowerMod.h,
+          ParameterInterpolator.h, DryWetProcessor.h,
+          Oscillator.h, RampOscillator.h, SineOscillator.h,
+          SquareOscillator.h, SquareWaveOscillator.h,
+          TriangleOscillator.h, VariableShapeOscillator.h,
+          NoiseGenerator.h, NoiseOscillator.h,
+          TapTempo.h, TapTempoOscillator.h,
+          Schmitt.h, TGate.h, Led.h, Resource.h,
+          Patch.h (adapted for Disting NT).
+Source:   https://github.com/RebelTechnology/OwlProgram
+Authors:  Rebel Technology Ltd, Martin Klang, and contributors.
+License:  MIT License — see source repository for full terms.
+Notes:    These utility classes are used verbatim or with minor
+          modifications to replace the OWL firmware environment
+          with the Disting NT API (e.g. Patch.h, Resource.h).

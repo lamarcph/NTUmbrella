@@ -20,6 +20,9 @@ Inputs → Input Level → Oscillators & Looper → Filter → Resonator → Ech
 - Resonator / Echo / Ambience: volumes and behaviour (tune/density/decay)
 - Modulation: Type, Speed, Level
 - Routing: Input/Output selection, Clock/Pitch input assignment, Input Level, Output Level
+- Randomize / Undo / Redo: one-shot trigger buttons to randomize synthesis parameters, then step back/forward through history
+- Rand Scope: choose which parameter group is randomized (All, Osc, Filter, Looper, Resonator, Echo, Ambience, Mod)
+- Looper Folder / Looper File: load a WAV from the SD card directly into the looper buffer
 
 ## Defaults:
 
@@ -54,6 +57,32 @@ DJ filter behaviour: the DJ filter center is at 0.550 (dry). Values below 0.550 
 - Sound‑on‑Sound enables overdubbing without erasing the loop.
 - Resampling mode lets you resample and layer creative textures.
 - Use Speed / Start / Length to control loop playback and position.
+
+## Loading a file into the looper
+1. Insert an SD card with WAV files in numbered folders (same layout used by samplePlayer).
+2. On the Looper page, scroll to **Looper Folder** and choose the folder number — the folder name is shown on screen.
+3. Scroll to **Looper File** and dial to the desired file — the filename is shown on screen.
+4. Press the encoder (confirm) to load. The file is read asynchronously; the loop length parameter is updated automatically once loading completes.
+- Value 0 = "None" (no file loaded).
+- Mono files are loaded directly. Stereo files are mixed to mono by the firmware before the data arrives.
+- The file is tiled to fill the full looper buffer and then copied to both L and R channels, so shorter files simply repeat.
+- You can continue playing while the load is in progress.
+
+## Randomization
+- **Randomize** (trigger): generates new random values for all synthesis parameters in the current scope and saves the previous state to an undo history (up to 8 steps).
+- **Undo / Redo** (triggers): step backward and forward through the randomization history.
+- **Rand Scope**: restricts which parameter group is affected:
+  | Value | Group |
+  |-------|-------|
+  | 0 | All |
+  | 1 | Osc |
+  | 2 | Filter |
+  | 3 | Looper |
+  | 4 | Resonator |
+  | 5 | Echo |
+  | 6 | Ambience |
+  | 7 | Mod |
+- Output assignments, input routing, clock/pitch inputs and the randomization controls themselves are always excluded from randomization regardless of scope.
 
 ## Troubleshooting
 ### No audio:

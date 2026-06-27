@@ -118,6 +118,10 @@ public:
         return new Oneiroi(patchCtrls, patchCvs, patchState);
     }
 
+    // Returns the raw float buffer underlying the looper (L then R, each kLooperChannelBufferLength samples).
+    // Used by the NT glue layer to inject pre-loaded audio into the looper.
+    FloatArray* GetLooperFloatArray() { return looper_->GetBuffer(); }
+
     static void destroy(Oneiroi* obj)
     {
         //delete obj;
